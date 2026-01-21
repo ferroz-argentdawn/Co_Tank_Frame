@@ -1,0 +1,9 @@
+ignore:
+  - .gitignore
+  - .vscode
+  - .cursor
+  - .luarc.json
+  - *.code-workspace
+  - License.txt
+  - README.md
+  - *.ps1

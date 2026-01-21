@@ -20,33 +20,6 @@ local function IsInEditMode()
     return false
 end
 
-local function GetCurrentLayoutName()
-    if not C_EditMode or type(C_EditMode.GetLayouts) ~= "function" then 
-        return "Default" 
-    end
-
-    local layoutData = C_EditMode.GetLayouts()
-    if not layoutData or not layoutData.layouts then 
-        return "Default" 
-    end
-
-    local activeIdx = layoutData.activeLayout
-    -- presets, hard coded as 1 and 2
-    if activeIdx == 1 then
-        return HUD_EDIT_MODE_PRESET_MODERN or "Modern"
-    elseif activeIdx ==  2 then
-        return HUD_EDIT_MODE_PRESET_CLASSIC or "Classic"
-    end
-    --user layouts, these are offset by 2, the number of presets.  Unfortunately we can't get that dynamically
-    if activeIdx then
-        local directMatch = layoutData.layouts[activeIdx-2]
-        if directMatch and directMatch.layoutName then
-            return directMatch.layoutName
-        end
-    end
-    return "Default"
-end 
-
 local function FindCoTank()
     if isTestMode then return "player" end
     local groupType = IsInRaid() and "raid" or (IsInGroup() and "party")
@@ -88,7 +61,7 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
                     if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
                         iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
                     else
-
+                        iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
                     end
                     iconFrame:Show()
                 else
@@ -141,6 +114,7 @@ function Co_Tank_Frame_Mixin:UpdateHealthText()
     else 
         unitHealth = UnitHealth(unit)
     end
+    local ok, unitHealthAsPercent
     if CurveConstants and CurveConstants.ScaleTo100 then
         ok, unitHealthAsPercent  = pcall(UnitHealthPercent, unit,false, CurveConstants.ScaleTo100)
     else
@@ -222,7 +196,7 @@ end
 function Co_Tank_Frame_Mixin:UpdateVisuals()
     local unit = self:GetAttribute("unit")
     if not unit or not UnitExists(unit) then return end
-    
+
     self:UpdateHealthBar()
     self:UpdatePower()
     self:UpdateDebuffs()
@@ -237,113 +211,46 @@ function Co_Tank_Frame_Mixin:UpdateVisuals()
     end
 end
 
-function Co_Tank_Frame_Mixin:ResetLayout()
-    if InCombatLockdown() then return end
-    local layoutName = GetCurrentLayoutName()
-    
-    Co_Tank_Frame_Settings.layouts[layoutName] = nil
-    
-    self:SetScale(1.0)
-    self:ClearAllPoints()
-    self:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    print("|cff00ff00CoTank:|r Reset layout: " .. layoutName)
-end
-
-function Co_Tank_Frame_Mixin:OnSystemManagedDragStart()
-    self:StartMoving()
-end
-
-function Co_Tank_Frame_Mixin:OnSystemManagedDragStop()
-    self:StopMovingOrSizing()
-    
-    local point, _, rel, x, y = self:GetPoint()
-    -- 12.0 Fix: Consistent namespace usage
-    local layoutName = GetCurrentLayoutName()
-
-    Co_Tank_Frame_Settings.layouts[layoutName] = {
-        point = point,
-        relativePoint = rel,
-        xOfs = x,
-        yOfs = y,
-        scale = self:GetScale()
-    }
-end
-
 ---------------------------------------------------------
 -- EDIT MODE WRAPPERS
 ---------------------------------------------------------
 local function EnterEditMode(frame)
     if InCombatLockdown() then return end
-    frame.isEditing = true
     -- Stop listening to the real tank while editing
-    frame:UnregisterAllEvents() 
+    frame:UnregisterAllEvents()
     UnregisterUnitWatch(frame)
-    
     frame:SetAttribute("unit", "player") 
     frame.nameText:SetText("CO-TANK PREVIEW")
-
     frame:UpdateVisuals()
-    frame:Show()
-    
     -- Lock the blue color so real health events don't overwrite it
     frame.health:SetStatusBarColor(0.2, 0.2, 1, 1) 
     frame.bg:SetColorTexture(0.2, 0.2, 1, 0.5)
-    
-    frame:EnableMouse(true)
-    frame:SetMovable(true)
-    frame:RegisterForDrag("LeftButton")
     frame:Show()
 end
 
 local function ExitEditMode(frame)
-    frame.isEditing = false
-    frame:EnableMouse(false)
-    frame:SetMovable(false)
-    frame:RegisterForDrag()
-
     -- Put back the default background color
     frame.bg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
-    frame:EnableMouse(false)
-    
+    frame.health:SetStatusBarColor(0.5, 0.5, 0.5)
     RegisterUnitWatch(frame)
     if not InCombatLockdown() then
         local realTank = FindCoTank()
         frame:SetAttribute("unit", realTank)
-        
-        -- CRITICAL: Give the 12.0 engine a moment to 'unlock' the tank data
+        --Give the 12.0 engine a moment to 'unlock' the tank data
         C_Timer.After(0.1, function()
-            frame:UpdateVisuals() -- This calls UpdateHealthBar and UpdateHealthText internally
+            frame:UpdateVisuals()
         end)
     end
 end
 
 local function OnLayoutSelected(frame)
     if InCombatLockdown() then return end -- Safety first
-    
-    local layoutName = GetCurrentLayoutName()
-
-    local settings = Co_Tank_Frame_Settings.layouts[layoutName]
-    
-    if settings then
-        frame:ClearAllPoints()
-        frame:SetPoint(settings.point, UIParent, settings.relativePoint, settings.xOfs, settings.yOfs)
-        if settings.scale then 
-            frame:SetScale(settings.scale) 
-        end
-    else
-        -- If no settings exist for this layout, default to a safe spot
-        frame:ClearAllPoints()
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        frame:SetScale(1.0)
-    end
 end
 
 ---------------------------------------------------------
 -- INITIALIZATION
 ---------------------------------------------------------
-local function InitializeCotankFrame(name)
-    if name ~= "Co_Tank_Frame" then return end
-
+local function InitializeCotankFrame()
     -- Initialize settings if they don't exist
     Co_Tank_Frame_Settings = Co_Tank_Frame_Settings or {}
     Co_Tank_Frame_Settings.layouts = Co_Tank_Frame_Settings.layouts or {}
@@ -355,10 +262,6 @@ local function InitializeCotankFrame(name)
     Mixin(frame, Co_Tank_Frame_Mixin, EditModeSystemMixin)
     frame.systemIndex = Enum.EditModeSystem.UnitFrame 
     frame.systemName = "Co-Tank Frame"
-
-    if EditModeManager and EditModeManager.RegisterSystemFrame then
-        EditModeManager:RegisterSystemFrame(frame)
-    end
     
     -- Visual Setup
     frame:SetSize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
@@ -474,71 +377,25 @@ local function InitializeCotankFrame(name)
     -- Assign Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
     frame:SetScript("OnEvent", frame.UpdateVisuals)
-    -- Change your existing script assignments to this:
-    frame:SetScript("OnDragStart", function(self) self:OnSystemManagedDragStart() end)
-    frame:SetScript("OnDragStop", function(self) self:OnSystemManagedDragStop() end)
-    
-    -- Enable Mouse Wheel for Scaling (Only works in Edit Mode)
-    frame:EnableMouseWheel(true)
-    -- Find this block in InitializeCotankFrame (around line 344)
-    frame:SetScript("OnMouseWheel", function(self, delta)
-        if IsInEditMode() or self.isEditing then 
-            local centerX, centerY = self:GetCenter()
-            local currentScale = self:GetScale()
-            
-            local newScale = currentScale + (delta * 0.05)
-            newScale = math.max(0.4, math.min(2.5, newScale))
-            
-            self:SetScale(newScale)
-            
-            if centerX and centerY then
-                self:ClearAllPoints()
-                self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX * (currentScale/newScale), centerY * (currentScale/newScale))
-            end
-    
-            -- Ensure we use the robust name lookup to stop it from going to "Default"
-            local layoutName = GetCurrentLayoutName() 
-            local point, _, rel, x, y = self:GetPoint()
-            
-            Co_Tank_Frame_Settings.layouts[layoutName] = {
-                point = point, 
-                relativePoint = rel, 
-                xOfs = x, 
-                yOfs = y, 
-                scale = newScale 
-            }
-        end
-    end)
 
-    -- Layout & Global Events    
-    EventRegistry:RegisterCallback("EditMode.Enter", function() EnterEditMode(frame) end)
-    EventRegistry:RegisterCallback("EditMode.Exit",  function() ExitEditMode(frame) end)
-    EventRegistry:RegisterCallback("EditMode.LayoutSelected", function() OnLayoutSelected(frame) end)
+    if FerrozEditModeLib then
+        FerrozEditModeLib:Register(frame, Co_Tank_Frame_Settings, EnterEditMode, ExitEditMode, OnLayoutSelected)
+    end
 
+    
     -- External State Controller (Manager)
     local manager = CreateFrame("Frame")
     manager:RegisterEvent("GROUP_ROSTER_UPDATE")
     manager:RegisterEvent("PLAYER_REGEN_ENABLED")
-    manager:SetScript("OnEvent", function()
+    manager:RegisterEvent("PLAYER_ENTERING_WORLD")
+    manager:SetScript("OnEvent", function(self, event)
         if not InCombatLockdown() then
-            frame:SetAttribute("unit", FindCoTank())
-            -- Force the UI to draw immediately once combat state is unlocked
-            if event == "PLAYER_REGEN_ENABLED" and targetUnit then
-                frame:UpdateVisuals()
+            local currentTank = FindCoTank()
+            frame:SetAttribute("unit", currentTank)
+            if FerrozEditModeLib then
+                FerrozEditModeLib:ApplyLayout(frame, Co_Tank_Frame_Settings)
             end
-        end
-    end)
-
-    local layoutManager = CreateFrame("Frame")
-    layoutManager:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
-    layoutManager:RegisterEvent("PLAYER_ENTERING_WORLD") 
-    layoutManager:SetScript("OnEvent", function(self, event)
-        if event == "PLAYER_ENTERING_WORLD" then
-            C_Timer.After(0.5, function()
-                OnLayoutSelected(frame)
-            end)
-        else
-            OnLayoutSelected(frame)
+            frame:UpdateVisuals()
         end
     end)
 
@@ -548,36 +405,18 @@ local function InitializeCotankFrame(name)
     -- Support for Clique and other click-casting addons
     _G["ClickCastFrames"] = _G["ClickCastFrames"] or {}
     _G["ClickCastFrames"][frame] = true
+
+    print("|cFF00FF00[CoTank]:|r Addon Loaded and Registered")
 end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(_, _, name) InitializeCotankFrame(name) end)
-
----------------------------------------------------------
--- EXPORT WINDOW HELPER
----------------------------------------------------------
-local function ShowExportWindow(text)
-    local f = Co_Tank_Export_Frame or CreateFrame("Frame", "Co_Tank_Export_Frame", UIParent, "DialogBoxFrame")
-    f:SetSize(450, 120)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("DIALOG")
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    
-    local eb = f.editBox or CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    f.editBox = eb
-    eb:SetSize(400, 30)
-    eb:SetPoint("CENTER", 0, 10)
-    eb:SetText(text)
-    eb:HighlightText()
-    eb:SetFocus()
-    eb:SetScript("OnEscapePressed", function() f:Hide() end)
-    f:Show()
-end
+loader:SetScript("OnEvent", function(self, event, name)
+    if name == "Co_Tank_Frame" then
+        InitializeCotankFrame()
+        self:UnregisterEvent("ADDON_LOADED")
+    end
+end)
 
 ---------------------------------------------------------
 -- MAIN SLASH COMMAND
@@ -586,11 +425,12 @@ SLASH_COTANK1 = "/cotank"
 SlashCmdList["COTANK"] = function(msg)
     local cmd, arg = string.split(" ", msg)
     cmd = cmd and cmd:lower() or ""
-    
     if cmd == "reset" then
-        if Co_Tank_Frame and Co_Tank_Frame.ResetLayout then
-            Co_Tank_Frame:ResetLayout()
+        Co_Tank_Frame:UpdateVisuals()
+        if FerrozEditModeLib and FerrozEditModeLib.ResetPosition then
+            FerrozEditModeLib:ResetPosition(Co_Tank_Frame,Co_Tank_Frame_Settings)
         end
+        print("|cff00ffffCoTank:|r Settings and position have been reset.")
     elseif cmd == "filter" or cmd == "filtermode" then
         if(Co_Tank_Frame_Settings.filterMode == "HARMFUL|RAID") then
             Co_Tank_Frame_Settings.filterMode = "HARMFUL"
@@ -603,23 +443,19 @@ SlashCmdList["COTANK"] = function(msg)
         isTestMode = not isTestMode
         local status = isTestMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"
         print("|cff00ffffCoTank:|r Test Mode is " .. status)
-        
-        if Co_Tank_Frame then
-            -- Tell the frame to find the tank (which will now be 'player')
-            local tankUnit = FindCoTank()
-            Co_Tank_Frame:SetAttribute("unit", tankUnit)
-            
-            -- If we are testing, we need to bypass UnitWatch hiding the frame
+
+        if Co_Tank_Frame then            -- If we are testing, we need to bypass UnitWatch hiding the frame
             if isTestMode then
                 UnregisterUnitWatch(Co_Tank_Frame)
+                Co_Tank_Frame:SetAttribute("unit", "player")
                 Co_Tank_Frame:Show()
             else
+                local tankUnit = FindCoTank()
+                Co_Tank_Frame:SetAttribute("unit", FindCoTank())
                 RegisterUnitWatch(Co_Tank_Frame)
             end
-            
             Co_Tank_Frame:UpdateVisuals()
-        end  
-        
+        end
         if Co_Tank_Frame.UpdateDebuffs then Co_Tank_Frame:UpdateDebuffs() end
     else
         print("|cff00ff00CoTank usage:|r")
