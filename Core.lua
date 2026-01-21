@@ -406,7 +406,8 @@ local function InitializeCotankFrame()
     _G["ClickCastFrames"] = _G["ClickCastFrames"] or {}
     _G["ClickCastFrames"][frame] = true
 
-    print("|cFF00FF00[CoTank]:|r Addon Loaded and Registered")
+    local version = C_AddOns.GetAddOnMetadata("Co_Tank_Frame", "Version") or "1.0.0"
+    print("|cFF00FF00[CoTank] v" .. version .. ":|r loaded :|r (/cotank)")
 end
 
 local loader = CreateFrame("Frame")
