@@ -41,6 +41,11 @@ end
 Co_Tank_Frame_Mixin = {}
 
 -- Add to Co_Tank_Frame_Mixin
+function Co_Tank_Frame_Mixin:GetDebuffTypeColor(aura)
+    --TODO
+    return { r = 0.7, g = 0.7, b = 0.7 }
+end
+
 function Co_Tank_Frame_Mixin:UpdateDebuffs()
     local unit = self:GetAttribute("unit")
     local isEditMode = IsInEditMode() or self.isEditing
@@ -50,7 +55,7 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
         return
     end
 
-    if not isEditMode then 
+    if not isEditMode then --actual data
         for i = 1, 5 do -- Limit to 5 
             local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, Co_Tank_Frame_Settings.filterMode)
             local iconFrame = self.debuffs[i]
@@ -63,13 +68,17 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
                     else
                         iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
                     end
+                    local color = self.GetDebuffTypeColor(aura)
+                    if iconFrame.border and color then
+                        iconFrame.border:SetBackdropBorderColor(color.r, color.g, color.b)
+                    end
                     iconFrame:Show()
                 else
                     iconFrame:Hide()
                 end
             end
         end
-    else -- EDIT MODE PREVIEW
+    else -- EDIT MODE PREVIEW/mock data
         local previewIcons = {132290, 132090, 135904}
         for i = 1, 3 do
             local b = self.debuffs[i]
@@ -135,9 +144,8 @@ function Co_Tank_Frame_Mixin:UpdateHealthBar()
 
     -- 1. Handle Colors first (Non-Secret check)
     local _, class = UnitClass(unit)
-    local isSecret = (issecretvalue and type(issecretvalue) == "function") and issecretvalue(class)
 
-    if class and not isSecret then
+    if class then
         local color = RAID_CLASS_COLORS[class]
         if color then
             self.health:SetStatusBarColor(color.r, color.g, color.b)
@@ -197,16 +205,15 @@ function Co_Tank_Frame_Mixin:UpdateVisuals()
     local unit = self:GetAttribute("unit")
     if not unit or not UnitExists(unit) then return end
 
+    --these all work in editing mode so that it mocks the layout/data
     self:UpdateHealthBar()
     self:UpdatePower()
     self:UpdateDebuffs()
-    
+
     if self.isEditing then return end
 
-    -- Fix: Always attempt to set the name, but handle Secrets safely
     local name = UnitName(unit)
     if name then
-        -- If it's a secret, SetText is allowed, but arithmetic/concatenation is not
         self.nameText:SetText(name)
     end
 end
@@ -241,10 +248,6 @@ local function ExitEditMode(frame)
             frame:UpdateVisuals()
         end)
     end
-end
-
-local function OnLayoutSelected(frame)
-    if InCombatLockdown() then return end -- Safety first
 end
 
 ---------------------------------------------------------
@@ -315,28 +318,26 @@ local function InitializeCotankFrame()
         b:SetMouseClickEnabled(true)
         b:SetSize(26, 26) 
 
-        -- 1. THE BORDER (Using Backdrop for a perfect 1px line)
+        --BORDER (Using Backdrop for a perfect 1px line)
         b:SetBackdrop({
             edgeFile = "Interface\\Buttons\\WHITE8X8",
             edgeSize = 1,
         })
-        -- Store the border reference so we can color it in UpdateDebuffs
-        b.border = b 
+        b.border = b
 
-        -- 2. THE ICON
+        -- ICON
         b.icon = b:CreateTexture(nil, "ARTWORK")
-        -- Pin the icon 1 pixel inside the border
         b.icon:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
         b.icon:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
         b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- Zoom in slightly to remove default icon edges
         
-        -- 3. THE COOLDOWN
+        -- COOLDOWN
         b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
         b.cd:SetAllPoints(b.icon)
         b.cd:SetReverse(true) -- Darken the spent time, keep remaining time bright
         b.cd:SetHideCountdownNumbers(false)
 
-        -- 4. STACK COUNT
+        -- STACK COUNT
         b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
         b.count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, 0)
 
@@ -349,7 +350,6 @@ local function InitializeCotankFrame()
             local theFrame = parent:GetParent()
             local unit = theFrame:GetAttribute("unit")
             local index = self:GetID() 
-        
             if unit and index then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText("Hello World", 1, 1, 1) -- White text
@@ -357,19 +357,15 @@ local function InitializeCotankFrame()
                 local filter = Co_Tank_Frame_Settings.filterMode or "HARMFUL"
                 GameTooltip:SetUnitAura(unit, index, filter)
                 GameTooltip:Show()
-            else
-                --debug
-                --if not unit then print("Error: Unit attribute not found on Main Frame") end
-                --if not index then print("Error: Button ID (index) is missing") end
             end
         end)
-        
+
         if i == 1 then
             b:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
         else
             b:SetPoint("RIGHT", frame.debuffs[i-1], "LEFT", -4, 0)
         end
-        
+
         b:Hide()
         frame.debuffs[i] = b
     end
@@ -379,10 +375,9 @@ local function InitializeCotankFrame()
     frame:SetScript("OnEvent", frame.UpdateVisuals)
 
     if FerrozEditModeLib then
-        FerrozEditModeLib:Register(frame, Co_Tank_Frame_Settings, EnterEditMode, ExitEditMode, OnLayoutSelected)
+        FerrozEditModeLib:Register(frame, Co_Tank_Frame_Settings, EnterEditMode, ExitEditMode)
     end
 
-    
     -- External State Controller (Manager)
     local manager = CreateFrame("Frame")
     manager:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -393,13 +388,13 @@ local function InitializeCotankFrame()
             local currentTank = FindCoTank()
             frame:SetAttribute("unit", currentTank)
             if FerrozEditModeLib then
-                FerrozEditModeLib:ApplyLayout(frame, Co_Tank_Frame_Settings)
+                FerrozEditModeLib:ApplyLayout(frame)
             end
             frame:UpdateVisuals()
         end
     end)
 
-    -- Final Setup
+    -- Initialize cotank
     frame:SetAttribute("unit", FindCoTank())
     RegisterUnitWatch(frame)
     -- Support for Clique and other click-casting addons
@@ -429,7 +424,7 @@ SlashCmdList["COTANK"] = function(msg)
     if cmd == "reset" then
         Co_Tank_Frame:UpdateVisuals()
         if FerrozEditModeLib and FerrozEditModeLib.ResetPosition then
-            FerrozEditModeLib:ResetPosition(Co_Tank_Frame,Co_Tank_Frame_Settings)
+            FerrozEditModeLib:ResetPosition(Co_Tank_Frame)
         end
         print("|cff00ffffCoTank:|r Settings and position have been reset.")
     elseif cmd == "filter" or cmd == "filtermode" then
