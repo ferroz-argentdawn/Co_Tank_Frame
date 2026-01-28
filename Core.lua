@@ -48,6 +48,14 @@ function Co_Tank_Frame_Mixin:GetDebuffTypeColor(aura)
     return { r = 0.7, g = 0.7, b = 0.7 }
 end
 
+function Co_Tank_Frame_Mixin:ShowAura(aura)
+    if Co_Tank_Frame_Settings.filterMode == "ALL DEBUFFS" then return true end
+    local success, isBoss = pcall(function()
+        return aura.sourceUnit and aura.sourceUnit:find("^boss")
+    end)
+    return success and isBoss
+end
+
 function Co_Tank_Frame_Mixin:UpdateDebuffs()
     local unit = self:GetAttribute("unit")
     local isEditMode = IsInEditMode() or self.isEditing
@@ -65,10 +73,15 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
             if not aura then break end
             if idx > #self.debuffs then break end
             --if  (Co_Tank_Frame_Settings.filterMode== "ALL DEBUFFS" or aura.isBossAura or aura.dispelName)  then
-            if (Co_Tank_Frame_Settings.filterMode == "ALL DEBUFFS") or aura.duration  or aura.dispelName then
+            if self:ShowAura(aura) then
                 local iconFrame = self.debuffs[idx]
                 iconFrame.icon:SetTexture(aura.icon)
                 iconFrame.count:SetFormattedText("%s", aura.applications)
+                if(aura.applications) then
+                    iconFrame.count:SetAlpha(aura.applications)
+                else
+                    iconFrame.count:SetAlpha(0)
+                end
                 if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
                     iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
                 else
@@ -298,13 +311,18 @@ local function InitializeCotankFrame()
     frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE") 
     frame.nameText:SetPoint("BOTTOMLEFT", frame.health, "LEFT", 6, 4) -- Nudged up
     frame.nameText:SetJustifyH("LEFT")
+    frame.nameText:SetIgnoreParentAlpha(false)
 
     -- HP Text (Slot 2)
     frame.hpText = frame.health:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.hpText:SetPoint("TOPLEFT", frame.health, "LEFT", 6, -4) -- Nudged down
     frame.hpText:SetJustifyH("LEFT")
     frame.hpText:SetTextColor(0.9, 0.9, 0.9)
-    frame:EnableMouse(false)
+    frame.hpText:SetIgnoreParentAlpha(false)
+
+    frame.health:SetMouseClickEnabled(false)
+    frame.power:SetMouseClickEnabled(false)
+    
     frame.debuffs = {}
     for i = 1, 5 do
         -- Main Button Frame
@@ -312,7 +330,7 @@ local function InitializeCotankFrame()
         iconFrame:SetFrameStrata("MEDIUM")
         iconFrame:SetFrameLevel(Co_Tank_Frame:GetFrameLevel() + 5)
         iconFrame:SetMouseClickEnabled(true)
-        iconFrame:SetSize(26, 26) 
+        iconFrame:SetSize(26, 26)
 
         --BORDER (Using Backdrop for a perfect 1px line)
         iconFrame:SetBackdrop({
@@ -326,7 +344,7 @@ local function InitializeCotankFrame()
         iconFrame.icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 1, -1)
         iconFrame.icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -1, 1)
         iconFrame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) -- Zoom in slightly to remove default icon edges
-        
+
         -- COOLDOWN
         iconFrame.cd = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
         iconFrame.cd:SetAllPoints(iconFrame.icon)
