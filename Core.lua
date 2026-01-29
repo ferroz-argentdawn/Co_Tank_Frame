@@ -11,6 +11,18 @@ local POWER_BAR_HEIGHT = 5
 local isTestMode = false
 local FERROZ_COLOR = CreateColorFromHexString("ff8FB8DD")
 local log = FerrozEditModeLib.Log
+local FILTER_MODES = {
+    ALL = "All Debuffs",
+    RAID = "Raid ESSENTIAL Debuffs",
+    BIGDEFENSIVe = "BIG DEFENSIVE Debuffs",
+    RAIDANDBIGDEFENSIVE = "Raid ESSENTIAL and BIG DEFENSIVE Debuffs"
+}
+local NEXT_FILTER_MODE = {
+    [FILTER_MODES.ALL] = FILTER_MODES.RAID,
+    [FILTER_MODES.RAID] = FILTER_MODES.BIGDEFENSIVe,
+    [FILTER_MODES.BIGDEFENSIVe] = FILTER_MODES.RAIDANDBIGDEFENSIVE,
+    [FILTER_MODES.RAIDANDBIGDEFENSIVE] = FILTER_MODES.ALL
+}
 
 ---------------------------------------------------------
 -- HELPERS
@@ -37,6 +49,22 @@ local function FindCoTank()
     return nil
 end
 
+local function AuraFilterValue()
+    Co_Tank_Frame_Settings = Co_Tank_Frame_Settings or {}
+    Co_Tank_Frame_Settings.filterMode = Co_Tank_Frame_Settings.filterMode or FILTER_MODES.ALL
+    if  Co_Tank_Frame_Settings.filterMode == FILTER_MODES.RAIDANDBIGDEFENSIVE then return "HARMFUL|RAID_IN_COMBAT" end
+    if  Co_Tank_Frame_Settings.filterMode == FILTER_MODES.RAID then return "HARMFUL|RAID_IN_COMBAT" end
+    if  Co_Tank_Frame_Settings.filterMode == FILTER_MODES.BIGDEFENSIVE then return "HARMFUL|BIG_DEFENSIVE" end
+    return "HARMFUL" -- all
+end
+
+local function GetMaxPrivateAuras()
+    return (Co_Tank_Frame_Settings and Co_Tank_Frame_Settings.maxPrivateAuras) or 6
+end
+local function GetPrivateAuraSize()
+    return 30--math.floor(DEFAULT_WIDTH / GetMaxPrivateAuras()) - 4
+end
+
 ---------------------------------------------------------
 -- MIXINS 
 ---------------------------------------------------------
@@ -44,16 +72,8 @@ Co_Tank_Frame_Mixin = {}
 
 -- Add to Co_Tank_Frame_Mixin
 function Co_Tank_Frame_Mixin:GetDebuffTypeColor(aura)
-    --TODO
+    --not sure if we can do this 
     return { r = 0.7, g = 0.7, b = 0.7 }
-end
-
-function Co_Tank_Frame_Mixin:ShowAura(aura)
-    if Co_Tank_Frame_Settings.filterMode == "ALL DEBUFFS" then return true end
-    local success, isBoss = pcall(function()
-        return aura.sourceUnit and aura.sourceUnit:find("^boss")
-    end)
-    return success and isBoss
 end
 
 function Co_Tank_Frame_Mixin:UpdateDebuffs()
@@ -69,31 +89,28 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
     if not isEditMode then --actual data
         local idx = 1 -- 1 indexed
         for auraIdx = 1, 40 do
-            local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, "HARMFUL")
+            local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, AuraFilterValue())
             if not aura then break end
             if idx > #self.debuffs then break end
-            --if  (Co_Tank_Frame_Settings.filterMode== "ALL DEBUFFS" or aura.isBossAura or aura.dispelName)  then
-            if self:ShowAura(aura) then
-                local iconFrame = self.debuffs[idx]
-                iconFrame.icon:SetTexture(aura.icon)
-                iconFrame.count:SetFormattedText("%s", aura.applications)
-                if(aura.applications) then
-                    iconFrame.count:SetAlpha(aura.applications)
-                else
-                    iconFrame.count:SetAlpha(0)
-                end
-                if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-                    iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-                else
-                    iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
-                end
-                local color = self.GetDebuffTypeColor(aura)
-                if iconFrame.border and color then
-                    iconFrame.border:SetBackdropBorderColor(color.r, color.g, color.b)
-                end
-                iconFrame:SetAlpha(1)
-                idx = idx + 1
+            local iconFrame = self.debuffs[idx]
+            iconFrame.icon:SetTexture(aura.icon)
+            iconFrame.count:SetFormattedText("%s", aura.applications)
+            if(aura.applications) then
+                iconFrame.count:SetAlpha(aura.applications)
+            else
+                iconFrame.count:SetAlpha(0)
             end
+            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
+                iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            else
+                iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
+            end
+            local color = self.GetDebuffTypeColor(aura)
+            if iconFrame.border and color then
+                iconFrame.border:SetBackdropBorderColor(color.r, color.g, color.b)
+            end
+            iconFrame:SetAlpha(1)
+            idx = idx + 1
         end
     else -- EDIT MODE PREVIEW/mock data
         local previewIcons = {132290, 132090, 135904}
@@ -192,6 +209,70 @@ function Co_Tank_Frame_Mixin:UpdatePower()
     self.power:SetStatusBarColor(color.r, color.g, color.b)
 end
 
+function Co_Tank_Frame_Mixin:InitializePrivateAnchors(watchUnit)
+    self:CleanupPrivateAnchors()
+    if not watchUnit or not self:IsVisible() then return end
+
+    self.privateAnchorIDs = self.privateAnchorIDs or {}
+    self.anchorFrames = self.anchorFrames or {}
+
+    for i = 1, GetMaxPrivateAuras() do
+        if not self.anchorFrames[i] then
+            -- Visible container for the border
+            local container = CreateFrame("Frame", nil, self, "BackdropTemplate")
+            container:SetSize(GetPrivateAuraSize(),GetPrivateAuraSize())
+            container:SetBackdrop({
+                edgeFile = "Interface\\Buttons\\WHITE8X8",
+                edgeSize = 1,
+            })
+            container:SetBackdropBorderColor(0, 0, 0, 1)
+
+            local auraAnchor = CreateFrame("Frame", nil, container)
+            auraAnchor:SetAllPoints(container)
+            if i == 1 then
+                container:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 2)
+            else
+                container:SetPoint("RIGHT", self.anchorFrames[i-1].container, "LEFT", -4, 0)
+            end
+            self.anchorFrames[i] = auraAnchor
+            self.anchorFrames[i].container = container
+        end
+
+        local anchorData = {
+            unitToken = watchUnit,
+            auraIndex = i,
+            parent = self.anchorFrames[i],
+            showCountdownFrame = true,
+            showCountdownNumbers = true,
+            iconInfo = {
+                iconWidth = GetPrivateAuraSize() - 4,
+                iconHeight = GetPrivateAuraSize() - 4,
+                iconAnchor = {
+                    point = "CENTER",
+                    relativeTo = self.anchorFrames[i],
+                    relativePoint = "CENTER",
+                    offsetX = 0,
+                    offsetY = 0,
+                },
+            }
+        }
+
+        local anchorID = C_UnitAuras.AddPrivateAuraAnchor(anchorData)
+        if anchorID then
+            table.insert(self.privateAnchorIDs, anchorID)
+        end
+    end
+end
+
+function Co_Tank_Frame_Mixin:CleanupPrivateAnchors()
+    if self.privateAnchorIDs then
+        for _, anchorID in ipairs(self.privateAnchorIDs) do
+            C_UnitAuras.RemovePrivateAuraAnchor(anchorID)
+        end
+        self.privateAnchorIDs = {}
+    end
+end
+
 -- Called when the unit attribute changes (Binding Logic)
 function Co_Tank_Frame_Mixin:OnAttributeChanged(name, value)
     if name == "unit" then
@@ -204,6 +285,9 @@ function Co_Tank_Frame_Mixin:OnAttributeChanged(name, value)
             self:RegisterUnitEvent("UNIT_MAXPOWER", watchUnit)
             self:RegisterUnitEvent("UNIT_DISPLAYPOWER", watchUnit)
             self:RegisterUnitEvent("UNIT_AURA", watchUnit)
+            if self:IsVisible() then
+                self:InitializePrivateAnchors(watchUnit)
+            end
             self:UpdateVisuals()
         else
             if not isTestMode then
@@ -212,6 +296,7 @@ function Co_Tank_Frame_Mixin:OnAttributeChanged(name, value)
             self.health:SetValue(0)
             self.power:SetValue(0)
             for i = 1, #self.debuffs do self.debuffs[i]:SetAlpha(0) end
+            self:CleanupPrivateAnchors()
         end
     end
 end
@@ -372,13 +457,14 @@ local function InitializeCotankFrame()
             if unit and index then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 
-                GameTooltip:SetUnitAura(unit, index, "HARMFUL")
+                GameTooltip:SetUnitAura(unit, index, AuraFilterValue())
                 GameTooltip:Show()
             end
         end)
 
         if i == 1 then
-            iconFrame:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
+            --iconFrame:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
+            iconFrame:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, -2)
         else
             iconFrame:SetPoint("RIGHT", frame.debuffs[i-1], "LEFT", -4, 0)
         end
@@ -387,9 +473,22 @@ local function InitializeCotankFrame()
         frame.debuffs[i] = iconFrame
     end
 
+    --private aura frame
+
     -- Assign Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
     frame:SetScript("OnEvent", frame.UpdateVisuals)
+    frame:SetScript("OnShow", function(self)
+        local unit = self:GetAttribute("unit")
+        if unit then
+            self:InitializePrivateAnchors(unit)
+        end
+    end)
+    
+    frame:SetScript("OnHide", function(self)
+        self:CleanupPrivateAnchors()
+    end)
+    
 
     if FerrozEditModeLib then
         FerrozEditModeLib:Register(frame, Co_Tank_Frame_Settings)
@@ -431,6 +530,19 @@ loader:SetScript("OnEvent", function(self, event, name)
     end
 end)
 
+StaticPopupDialogs["COTANK_RELOAD_UI"] = {
+    text = "CoTank: You need to reload your UI to apply the new aura settings.",
+    button1 = "Reload",
+    button2 = "Later",
+    OnAccept = function()
+        ReloadUI()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
 ---------------------------------------------------------
 -- MAIN SLASH COMMAND
 ---------------------------------------------------------
@@ -445,18 +557,23 @@ SlashCmdList["COTANK"] = function(msg)
         end
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Settings and position have been reset.")
     elseif cmd == "filter" or cmd == "filtermode" then
-        if(Co_Tank_Frame_Settings.filterMode == "ESSENTIAL ONLY") then
-            Co_Tank_Frame_Settings.filterMode = "ALL DEBUFFS"
-        else
-            Co_Tank_Frame_Settings.filterMode = "ESSENTIAL ONLY"
-        end
+        Co_Tank_Frame_Settings = Co_Tank_Frame_Settings or {}
+        Co_Tank_Frame_Settings.filterMode = Co_Tank_Frame_Settings.filterMode or FILTER_MODES.ALL
+        Co_Tank_Frame_Settings.filterMode = NEXT_FILTER_MODE[Co_Tank_Frame_Settings.filterMode] or FILTER_MODES.ALL
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Filtermode set to: " .. Co_Tank_Frame_Settings.filterMode)
+    elseif cmd == "maxauras" or cmd == "limit" then
+        local num = tonumber(arg)
+        if num and num > 0 and num <= 10 then -- Cap it at 10 for performance/sanity
+            Co_Tank_Frame_Settings.maxPrivateAuras = num
+            print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Max Private Auras set to: " .. num)
+            StaticPopup_Show("COTANK_RELOAD_UI")
+        end
     elseif cmd == "test" then
         isTestMode = not isTestMode
         local status = isTestMode and GREEN_FONT_COLOR:WrapTextInColorCode("ON") or RED_FONT_COLOR:WrapTextInColorCode("OFF")
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Test Mode is " .. status)
 
-        if Co_Tank_Frame then            -- If we are testing, we need to bypass UnitWatch hiding the frame
+        if Co_Tank_Frame then
             if isTestMode then
                 UnregisterUnitWatch(Co_Tank_Frame)
                 Co_Tank_Frame:SetAttribute("unit", "player")
@@ -472,5 +589,6 @@ SlashCmdList["COTANK"] = function(msg)
     else
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank Commands"))
         print("  /cotank reset - Resets frame position")
+        print("  /cotank maxauras # - changes the maximum number of auras shown")
     end
 end
