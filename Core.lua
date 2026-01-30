@@ -3,14 +3,20 @@ local addonName, ns = ...
 ---------------------------------------------------------
 --Constants
 ---------------------------------------------------------
+local log = FerrozEditModeLib.Log
 local BAR_COLOR = {0.2, 0.5, 0.2}
 local BG_COLOR = {0.1, 0.2, 0.1}
 local DEFAULT_WIDTH = 200
 local DEFAULT_HEIGHT = 55
 local POWER_BAR_HEIGHT = 5
+local HEALTH_BAR_INTENSITY = 0.7
+local DEBUFF_ICON_SIZE = 26
+local PRIVATE_AURA_CONTAINER_SIZE = 30
+local DEBUFF_SPACING = 4
+local DEBUFF_MAX_COUNT = 5
 local isTestMode = false
 local FERROZ_COLOR = CreateColorFromHexString("ff8FB8DD")
-local log = FerrozEditModeLib.Log
+local BACKDROP_TEXTURE = "Interface\\Buttons\\WHITE8X8"
 local FILTER_MODES = {
     AURAS = "Private Auras",
     DEBUFFS = "All Debuffs",
@@ -21,6 +27,8 @@ local NEXT_FILTER_MODE = {
     [FILTER_MODES.DEBUFFS] = FILTER_MODES.BOTH,
     [FILTER_MODES.BOTH] = FILTER_MODES.AURAS
 }
+local MOCK_PREVIEW_DEBUFF_ICONS = {132290, 132090, 135904}
+local MOCK_NAMES = {"Lord Doljonijiarnimorinar", "Lorem Ipsum Dolor", "M1 Abrams", "Iblameheals"}
 
 ---------------------------------------------------------
 -- HELPERS
@@ -57,11 +65,8 @@ end
 local function GetMaxPrivateAuras()
     return (Co_Tank_Frame_Settings and Co_Tank_Frame_Settings.maxPrivateAuras) or 4
 end
-local function GetPrivateAuraSize()
-    return 30
-end
 local function CalculateScaleFactor()
-    return DEFAULT_WIDTH / (GetMaxPrivateAuras() * (30+4))
+    return (DEFAULT_WIDTH - DEBUFF_SPACING)  / (GetMaxPrivateAuras() * (PRIVATE_AURA_CONTAINER_SIZE + DEBUFF_SPACING))
 end
 
 local function IsValidFilterMode(mode)
@@ -74,69 +79,66 @@ end
 ---------------------------------------------------------
 -- MIXINS 
 ---------------------------------------------------------
-Co_Tank_Frame_Mixin = {}
+local Co_Tank_Frame_Mixin = {}
 
--- Add to Co_Tank_Frame_Mixin
-function Co_Tank_Frame_Mixin:UpdateDebuffs()
-    local unit = self:GetAttribute("unit")
-    local isEditMode = IsInEditMode() or self.isEditing
-
+function Co_Tank_Frame_Mixin:ClearDebuffs()
     for i = 1, #self.debuffs do 
         self.debuffs[i]:SetAlpha(0)
         self.debuffs[i].icon:SetTexture(nil)
         self.debuffs[i].count:SetText("");
         self.debuffs[i].cd:SetCooldown(0,0)
     end
+end
 
-    if(not ShowDebuffs()) then
+-- Add to Co_Tank_Frame_Mixin
+function Co_Tank_Frame_Mixin:UpdateDebuffs()
+    local unit = self:GetAttribute("unit")
+    local isEditMode = IsInEditMode() or self.isEditing
+
+    if not ShowDebuffs() or not unit or not UnitExists(unit) or isEditMode then
         return
     end
 
-    if (not unit or not UnitExists(unit)) and not isEditMode then
-        return
+    self:ClearDebuffs()
+
+    local idx = 1 -- 1 indexed
+    for auraIdx = 1, 40 do
+        local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, "HARMFUL")
+        if not aura then break end
+        if idx > #self.debuffs then break end
+        local iconFrame = self.debuffs[idx]
+        iconFrame.icon:SetTexture(aura.icon)
+        iconFrame.count:SetFormattedText("%s", aura.applications)
+        if(aura.applications) then
+            iconFrame.count:SetAlpha(aura.applications)
+        else
+            iconFrame.count:SetAlpha(0)
+        end
+        if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
+            iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+        else
+            iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
+        end
+        iconFrame:SetAlpha(1)
+        idx = idx + 1
     end
 
-    if not isEditMode then --actual data
-        local idx = 1 -- 1 indexed
-        for auraIdx = 1, 40 do
-            local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, "HARMFUL")
-            if not aura then break end
-            if idx > #self.debuffs then break end
-            local iconFrame = self.debuffs[idx]
-            iconFrame.icon:SetTexture(aura.icon)
-            iconFrame.count:SetFormattedText("%s", aura.applications)
-            if(aura.applications) then
-                iconFrame.count:SetAlpha(aura.applications)
-            else
-                iconFrame.count:SetAlpha(0)
-            end
-            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-                iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-            else
-                iconFrame.cd:SetCooldown(aura.expirationTime - aura.duration, aura.duration)
-            end
-            iconFrame:SetAlpha(1)
-            idx = idx + 1
-        end
-    else -- EDIT MODE PREVIEW/mock data
-        local previewIcons = {132290, 132090, 135904}
-        for i = 1, 3 do
-            local iconFrame = self.debuffs[i]
-            -- Fix: In 12.0, use the frame itself if .border isn't defined
-            local borderFrame = iconFrame.border or iconFrame
-            
-            iconFrame.icon:SetTexture(previewIcons[i])
-            iconFrame.count:SetText(i == 1 and "3" or "")
-            
-            -- FIX: SetBackdropBorderColor is a BackdropTemplate method
-            if borderFrame.SetBackdropBorderColor then
-                borderFrame:SetBackdropBorderColor(1, 0, 0, 1) 
-            end
+end
 
-            iconFrame.cd:SetCooldown(GetTime(), 30)
-            iconFrame.cd:Show()
-            iconFrame:SetAlpha(1)
+function Co_Tank_Frame_Mixin:UpdateHealthBarColor()
+    local unit = self:GetAttribute("unit")
+    local color
+    if unit then
+        local _, class = UnitClass(unit)
+
+        if class then
+            color = RAID_CLASS_COLORS[class]
         end
+    end
+    if color then
+        self.health:SetStatusBarColor(color.r * HEALTH_BAR_INTENSITY, color.g * HEALTH_BAR_INTENSITY, color.b * HEALTH_BAR_INTENSITY)
+    else
+        self.health:SetStatusBarColor(0.5, 0.5, 0.5)
     end
 end
 
@@ -179,24 +181,8 @@ end
 function Co_Tank_Frame_Mixin:UpdateHealthBar()
     local unit = self:GetAttribute("unit")
     if not unit or not UnitExists(unit) then return end
-
-    -- 1. Handle Colors first (Non-Secret check)
-    local _, class = UnitClass(unit)
-
-    if class then
-        local color = RAID_CLASS_COLORS[class]
-        if color then
-            self.health:SetStatusBarColor(color.r, color.g, color.b)
-        end
-    else
-        self.health:SetStatusBarColor(0.5, 0.5, 0.5) 
-    end
-
-    -- 2. Set the Bar Values (These are Secret-Safe)
     self.health:SetMinMaxValues(0, UnitHealthMax(unit))
     self.health:SetValue(UnitHealth(unit))
-    
-    -- 3. THE FIX: Explicitly call the text update
     self:UpdateHealthText()
 end
 
@@ -215,9 +201,10 @@ function Co_Tank_Frame_Mixin:UpdatePower()
     self.power:SetStatusBarColor(color.r, color.g, color.b)
 end
 
-function Co_Tank_Frame_Mixin:InitializePrivateAnchors(watchUnit)
+function Co_Tank_Frame_Mixin:InitializePrivateAnchors()
+    local unit = self:GetAttribute("unit")
     self:CleanupPrivateAnchors()
-    if not watchUnit or not self:IsVisible() or not ShowPrivateAuras() then return end
+    if not unit or not self:IsVisible() or not ShowPrivateAuras() then return end
 
     self.privateAnchorIDs = self.privateAnchorIDs or {}
     self.anchorFrames = self.anchorFrames or {}
@@ -226,9 +213,9 @@ function Co_Tank_Frame_Mixin:InitializePrivateAnchors(watchUnit)
         if not self.anchorFrames[i] then
             -- Visible container for the border
             local container = CreateFrame("Frame", nil, self, "BackdropTemplate")
-            container:SetSize(GetPrivateAuraSize(),GetPrivateAuraSize())
+            container:SetSize(PRIVATE_AURA_CONTAINER_SIZE,PRIVATE_AURA_CONTAINER_SIZE)
             container:SetBackdrop({
-                edgeFile = "Interface\\Buttons\\WHITE8X8",
+                edgeFile = BACKDROP_TEXTURE,
                 edgeSize = 1,
             })
             container:SetBackdropBorderColor(0, 0, 0, 1)
@@ -238,7 +225,7 @@ function Co_Tank_Frame_Mixin:InitializePrivateAnchors(watchUnit)
             if i == 1 then
                 container:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 2)
             else
-                container:SetPoint("RIGHT", self.anchorFrames[i-1].container, "LEFT", -4, 0)
+                container:SetPoint("RIGHT", self.anchorFrames[i-1].container, "LEFT", -1 * DEBUFF_SPACING, 0)
             end
             self.anchorFrames[i] = auraAnchor
             self.anchorFrames[i].container = container
@@ -247,14 +234,14 @@ function Co_Tank_Frame_Mixin:InitializePrivateAnchors(watchUnit)
         self.anchorFrames[i].container:SetScale(CalculateScaleFactor())
 
         local anchorData = {
-            unitToken = watchUnit,
+            unitToken = unit,
             auraIndex = i,
             parent = self.anchorFrames[i],
             showCountdownFrame = true,
             showCountdownNumbers = true,
             iconInfo = {
-                iconWidth = GetPrivateAuraSize() - 4,
-                iconHeight = GetPrivateAuraSize() - 4,
+                iconWidth = PRIVATE_AURA_CONTAINER_SIZE - 4,
+                iconHeight = PRIVATE_AURA_CONTAINER_SIZE - 4,
                 iconAnchor = {
                     point = "CENTER",
                     relativeTo = self.anchorFrames[i],
@@ -320,7 +307,6 @@ function Co_Tank_Frame_Mixin:UpdateVisuals()
     local unit = self:GetAttribute("unit")
     if not unit or not UnitExists(unit) then return end
 
-    --these all work in editing mode so that it mocks the layout/data
     self:UpdateHealthBar()
     self:UpdatePower()
     self:UpdateDebuffs()
@@ -339,18 +325,28 @@ function Co_Tank_Frame_Mixin:EditModeStartMock()
     self:UnregisterAllEvents()
     UnregisterUnitWatch(self)
     self:SetAttribute("unit", "player") 
-    self.nameText:SetText("CO-TANK PREVIEW")
-    self:UpdateVisuals()
-    -- Lock the blue color so real health events don't overwrite it
-    self.health:SetStatusBarColor(0.2, 0.2, 1, 1) 
-    self.bg:SetColorTexture(0.2, 0.2, 1, 0.5)
+    self.nameText:SetText(MOCK_NAMES[math.random(#MOCK_NAMES)])
+    self:ClearDebuffs()
+    --mock debuffs
+    for i = 1, #MOCK_PREVIEW_DEBUFF_ICONS do
+        local iconFrame = self.debuffs[i]
+        local borderFrame = iconFrame.border or iconFrame
+        iconFrame.icon:SetTexture(MOCK_PREVIEW_DEBUFF_ICONS[i])
+        iconFrame.count:SetText(i == 1 and "3" or "")
+        iconFrame.cd:SetCooldown(GetTime(), math.random(10, 60))
+        iconFrame.cd:Show()
+        iconFrame:SetAlpha(1)
+    end
+    --Private auras can't be mocked.  
+    self:UpdateHealthBar()
+    self:UpdatePower()
     self:Show()
 end
 
 function Co_Tank_Frame_Mixin:EditModeStopMock()
     -- Put back the default background color
-    self.bg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
-    self.health:SetStatusBarColor(0.5, 0.5, 0.5)
+    self:UpdateHealthBarColor()
+    self:ClearDebuffs()
     RegisterUnitWatch(self)
     if not InCombatLockdown() then
         local realTank = FindCoTank()
@@ -386,7 +382,7 @@ local function InitializeCotankFrame()
     frame.bg:SetAllPoints()
     frame.bg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
 
-    frame:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1})
+    frame:SetBackdrop({edgeFile = BACKDROP_TEXTURE, edgeSize = 1})
     frame:SetBackdropBorderColor(0, 0, 0, 1)
 
     frame.health = CreateFrame("StatusBar", nil, frame)
@@ -399,24 +395,25 @@ local function InitializeCotankFrame()
     frame.power:SetHeight(POWER_BAR_HEIGHT) -- Thin, modern look
     frame.power:SetPoint("TOPLEFT", frame.health, "BOTTOMLEFT", 0, -1)
     frame.power:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-    frame.power:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    frame.power:SetStatusBarTexture(BACKDROP_TEXTURE)
 
     -- 3. Power Background
     frame.powerBG = frame.power:CreateTexture(nil, "BACKGROUND")
     frame.powerBG:SetAllPoints()
     frame.powerBG:SetColorTexture(0, 0, 0, 0.5)
 
-    frame.health:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    frame.health:SetStatusBarTexture(BACKDROP_TEXTURE)
 
     -- Name Text (Slot 1)
-    frame.nameText = frame.health:CreateFontString(nil, "OVERLAY")
-    frame.nameText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE") 
+    frame.nameText = frame.health:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+    local fontFace, fontSize, fontFlags = frame.nameText:GetFont()
+    frame.nameText:SetFont(fontFace, 14, "OUTLINE")
     frame.nameText:SetPoint("BOTTOMLEFT", frame.health, "LEFT", 6, 4) -- Nudged up
     frame.nameText:SetJustifyH("LEFT")
     frame.nameText:SetIgnoreParentAlpha(false)
 
     -- HP Text (Slot 2)
-    frame.hpText = frame.health:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.hpText = frame.health:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
     frame.hpText:SetPoint("TOPLEFT", frame.health, "LEFT", 6, -4) -- Nudged down
     frame.hpText:SetJustifyH("LEFT")
     frame.hpText:SetTextColor(0.9, 0.9, 0.9)
@@ -426,17 +423,17 @@ local function InitializeCotankFrame()
     frame.power:SetMouseClickEnabled(false)
     
     frame.debuffs = {}
-    for i = 1, 5 do
+    for i = 1, DEBUFF_MAX_COUNT do
         -- Main Button Frame
         local iconFrame = CreateFrame("Button", nil, frame.health, "BackdropTemplate")
         iconFrame:SetFrameStrata("MEDIUM")
         iconFrame:SetFrameLevel(Co_Tank_Frame:GetFrameLevel() + 5)
         iconFrame:SetMouseClickEnabled(true)
-        iconFrame:SetSize(26, 26)
+        iconFrame:SetSize(DEBUFF_ICON_SIZE, DEBUFF_ICON_SIZE)
 
         --BORDER (Using Backdrop for a perfect 1px line)
         iconFrame:SetBackdrop({
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
+            edgeFile = BACKDROP_TEXTURE,
             edgeSize = 1,
         })
         iconFrame.border = iconFrame
@@ -480,26 +477,21 @@ local function InitializeCotankFrame()
         end)
 
         if i == 1 then
-            --iconFrame:SetPoint("RIGHT", frame.health, "RIGHT", -6, 0)
             iconFrame:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, -2)
         else
-            iconFrame:SetPoint("RIGHT", frame.debuffs[i-1], "LEFT", -4, 0)
+            iconFrame:SetPoint("RIGHT", frame.debuffs[i-1], "LEFT", -1 * DEBUFF_SPACING, 0)
         end
 
         iconFrame:SetAlpha(0)
         frame.debuffs[i] = iconFrame
     end
 
-    --private aura frame
-
     -- Assign Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
     frame:SetScript("OnEvent", frame.UpdateVisuals)
     frame:SetScript("OnShow", function(self)
-        local unit = self:GetAttribute("unit")
-        if unit then
-            self:InitializePrivateAnchors(unit)
-        end
+        self:UpdateHealthBarColor()
+        self:InitializePrivateAnchors()
     end)
     
     frame:SetScript("OnHide", function(self)
@@ -523,6 +515,7 @@ local function InitializeCotankFrame()
             if FerrozEditModeLib then
                 FerrozEditModeLib:ApplyLayout(frame)
             end
+            frame:UpdateHealthBarColor()
             frame:UpdateVisuals()
         end
     end)
