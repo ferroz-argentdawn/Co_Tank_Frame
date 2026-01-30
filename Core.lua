@@ -1,9 +1,8 @@
 local addonName, ns = ...
-
----------------------------------------------------------
+---Libraries
+local lib = LibStub("FerrozEditModeLib-1.0")
 --Constants
----------------------------------------------------------
-local log = FerrozEditModeLib.Log --log function, handles only printing in debug mode
+local log = lib.Log --log function, handles only printing in debug mode
 local UPDATE_THROTTLE = 0.05 -- Roughly 20 updates per second (super smooth)
 --general ui
 local FERROZ_COLOR = CreateColorFromHexString("ff8FB8DD")
@@ -400,8 +399,11 @@ function Co_Tank_Frame_Mixin:EditModeStartMock()
         iconFrame.icon:SetTexture(MOCK_PREVIEW_DEBUFF_ICONS[i])
         iconFrame.count:SetText(i == 1 and "3" or "")
         iconFrame.cd:SetCooldown(GetTime(), math.random(10, 60))
-        iconFrame.cd:Show()
         iconFrame:SetAlpha(1)
+    end
+    for i=1, #self.bigDefensives do
+        local iconFrame = self.bigDefensives[i]
+        iconFrame:Hide()--hide on edit so they don't intercept mouse clicks
     end
     --Private auras can't be mocked.  
     self:UpdateHealthBar()
@@ -413,6 +415,10 @@ function Co_Tank_Frame_Mixin:EditModeStopMock()
     -- Put back the default background color
     self:UpdateHealthBarColor()
     self:ClearDebuffs()
+    for i=1, #self.bigDefensives do
+        local iconFrame = self.bigDefensives[i]
+        iconFrame:Show()
+    end
     RegisterUnitWatch(self)
     if not InCombatLockdown() then
         local realTank = FindCoTank()
@@ -430,7 +436,6 @@ end
 local function CreateIconFrame(iconList, iconSize, point, parent, relativePoint, ofsx, ofsy)
     local iconFrame = CreateFrame("Button", nil, parent, "BackdropTemplate")
     iconFrame:SetFrameStrata("MEDIUM")
-    iconFrame:SetFrameLevel(Co_Tank_Frame:GetFrameLevel() + 5)
     iconFrame:SetMouseClickEnabled(true)
     iconFrame:SetSize(iconSize, iconSize)
 
@@ -495,6 +500,8 @@ local function InitializeCotankFrame()
     end
 
     local frame = CreateFrame("Button", "Co_Tank_Frame", UIParent, "SecureUnitButtonTemplate, BackdropTemplate, EditModeSystemTemplate")
+    frame:SetAttribute("type1", "target") -- Left click = Target
+    frame:SetAttribute("type2", "togglemenu") -- Right click = Menu 
 
     Mixin(frame, Co_Tank_Frame_Mixin)
     
@@ -543,9 +550,6 @@ local function InitializeCotankFrame()
     frame.hpText:SetJustifyH("LEFT")
     frame.hpText:SetTextColor(0.9, 0.9, 0.9)
     frame.hpText:SetIgnoreParentAlpha(false)
-
-    frame.health:SetMouseClickEnabled(false)
-    frame.power:SetMouseClickEnabled(false)
     
     frame.debuffs = {}
     for i = 1, DEBUFF_MAX_COUNT do
@@ -569,8 +573,8 @@ local function InitializeCotankFrame()
         self:CleanupPrivateAnchors()
     end)
 
-    if FerrozEditModeLib then
-        FerrozEditModeLib:Register(frame, Co_Tank_Frame_Settings)
+    if lib then
+        lib:Register(frame, Co_Tank_Frame_Settings)
     end
 
     -- External State Controller (Manager)
@@ -580,31 +584,36 @@ local function InitializeCotankFrame()
     manager:RegisterEvent("PLAYER_ENTERING_WORLD")
     manager:SetScript("OnEvent", function(self, event)
         if not InCombatLockdown() then
+            local myRole = UnitGroupRolesAssigned("player")
             local currentTank = FindCoTank()
-            frame:SetAttribute("unit", currentTank)
-            if FerrozEditModeLib then
-                FerrozEditModeLib:ApplyLayout(frame)
+            if myRole == "TANK" and currentTank then
+                frame:SetAttribute("unit", currentTank)
+                RegisterUnitWatch(frame) -- Engine handles showing it
+            else
+                UnregisterUnitWatch(frame)
+                frame:Hide()
+                frame:SetAttribute("unit", nil)
+            end
+            if lib then
+                lib:ApplyLayout(frame)
             end
             frame:UpdateHealthBarColor()
             frame:UpdateVisuals()
         end
     end)
 
-    -- Initialize cotank
-    frame:SetAttribute("unit", FindCoTank())
-    RegisterUnitWatch(frame)
     -- Support for Clique and other click-casting addons
     _G["ClickCastFrames"] = _G["ClickCastFrames"] or {}
     _G["ClickCastFrames"][frame] = true
 
-    local version = C_AddOns.GetAddOnMetadata("Co_Tank_Frame", "Version") or "1.0.0"
+    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "1.0.0"
     print(FERROZ_COLOR:WrapTextInColorCode("[CoTank] v" .. version) .. " loaded (/cotank)")
 end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:SetScript("OnEvent", function(self, event, name)
-    if name == "Co_Tank_Frame" then
+    if name == addonName then
         InitializeCotankFrame()
         self:UnregisterEvent("ADDON_LOADED")
     end
@@ -632,8 +641,8 @@ SlashCmdList["COTANK"] = function(msg)
     cmd = cmd and cmd:lower() or ""
     if cmd == "reset" then
         Co_Tank_Frame:UpdateVisuals()
-        if FerrozEditModeLib and FerrozEditModeLib.ResetPosition then
-            FerrozEditModeLib:ResetPosition(Co_Tank_Frame)
+        if lib and lib.ResetPosition then
+            lib:ResetPosition(Co_Tank_Frame)
         end
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Settings and position have been reset.")
     elseif cmd == "filter" or cmd == "filtermode" then
