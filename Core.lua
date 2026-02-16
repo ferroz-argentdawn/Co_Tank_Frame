@@ -7,6 +7,7 @@ local UPDATE_THROTTLE = 0.05 -- Roughly 20 updates per second (super smooth)
 --general ui
 local FERROZ_COLOR = CreateColorFromHexString("ff8FB8DD")
 local BACKDROP_TEXTURE = "Interface\\Buttons\\WHITE8X8"
+local DEFAULT_FONT_FACE = "Fonts\\FRIZQT__.TTF"
 local DEFAULT_WIDTH = 200
 local DEFAULT_HEIGHT = 55
 local POWER_BAR_HEIGHT = 5
@@ -384,6 +385,48 @@ function Co_Tank_Frame_Mixin:UpdateVisuals(event, unused_unit, info)
     end
 end
 
+function Co_Tank_Frame_Mixin:UpdateMedia(mediaType, state)
+    if mediaType == "statusbar" then return self:UpdateTextures(state) end
+    if mediaType == "font" then return self:UpdateFonts(state) end
+    --ignore any others
+end
+
+function Co_Tank_Frame_Mixin:UpdateTextures(state)
+    state = state or self.workingState
+    if not state or not state.barTexture then return false end
+
+    -- Apply Texture to Health and Power bars
+    local changed = self.health.statusBarTextureString ~= state.barTexture
+        or self.power.statusBarTextureString ~= state.barTexture
+
+    self.health.statusBarTextureString =state.barTexture
+    self.health:SetStatusBarTexture(self.health.statusBarTextureString)
+    self.power.statusBarTextureString = state.barTexture
+    self.power:SetStatusBarTexture(self.power.statusBarTextureString)
+    --visual refresh
+    self:UpdateHealthBar()
+    self:UpdatePower()
+    return changed
+end
+
+function Co_Tank_Frame_Mixin:UpdateFonts(state)
+    state = state or self.workingState
+    if not state or not state.fontFace then return false end
+    -- Apply Font to Name and health Text
+    local changed = false
+    if self.nameText then
+        local currentFontPath, size, flags = self.nameText:GetFont()
+        changed = (currentFontPath ~= state.fontFace) or changed
+        self.nameText:SetFont(state.fontFace, size, flags)
+    end
+    if self.hpText then
+        local currentFontPath, size, flags = self.hpText:GetFont()
+        changed = (currentFontPath ~= state.fontFace) or changed
+        self.hpText:SetFont(state.fontFace, size, flags)
+    end
+    return changed
+end
+
 function Co_Tank_Frame_Mixin:EditModeStartMock()
     if InCombatLockdown() then return end
     -- Stop listening to the real tank while editing
@@ -427,6 +470,72 @@ function Co_Tank_Frame_Mixin:EditModeStopMock()
         C_Timer.After(0.1, function()
             self:UpdateVisuals()
         end)
+    end
+end
+
+function Co_Tank_Frame_Mixin:GetOrCreateFrameSpecificControls(socket)
+    if not self.frameSpecificPlugin then
+        local p = CreateFrame("Frame", nil, self, "VerticalLayoutFrame")
+        p.fixedWidth = lib.CONFIG_FRAME_WIDTH
+        p.spacing = lib.CONFIG_ROW_SPACING 
+        self.frameSpecificPlugin = p
+        self.extraControls = {}
+        lib:AddHR(p)
+        self.extraControls.barTexture = lib:CreateMediaSelector(p, "Bar Texture", "barTexture","statusbar", lib.CONFIG_ROW_LABEL_WIDTH *2)
+        if Co_Tank_Frame_Settings and Co_Tank_Frame_Settings.barTexture then
+            local name = lib:GetMediaNameFromPath("statusbar", Co_Tank_Frame_Settings.barTexture)
+            self.extraControls.barTexture:SetText(name)
+        end
+        self.extraControls.fontFace = lib:CreateMediaSelector(p, "Font", "fontFace","font",lib.CONFIG_ROW_LABEL_WIDTH * 2)
+        if Co_Tank_Frame_Settings and Co_Tank_Frame_Settings.fontFace then
+            local name = lib:GetMediaNameFromPath("font", Co_Tank_Frame_Settings.fontFace)
+            self.extraControls.fontFace:SetText(name)
+        end
+        p:Layout()
+    end
+    return self.extraControls, self.frameSpecificPlugin
+end
+
+function Co_Tank_Frame_Mixin:CommitFrameSpecificFields()
+    if not self.workingState then return end
+    Co_Tank_Frame_Settings.barTexture = self.workingState.barTexture
+    Co_Tank_Frame_Settings.fontFace = self.workingState.fontFace
+    lib:Log("Committed barTexture and fontFace for Tank Frame")
+end
+
+function Co_Tank_Frame_Mixin:UpdateFromState(state)
+    local changed = false
+    if state.barTexture then
+        changed = self:UpdateMedia("statusbar",state) or changed
+    end
+    if state.fontFace then
+        changed =  self:UpdateMedia("font",state) or changed
+    end
+    return changed
+end
+
+function Co_Tank_Frame_Mixin:GetFrameSpecificSnapshot()
+    local currentTexture = self.health:GetStatusBarTexture():GetTexture()
+    local currentTextureString = self.health.statusBarTextureString or [[Interface\Buttons\WHITE8X8]]
+    local fontPath, fontSize, fontFlags = self.nameText:GetFont()
+
+    return {
+        barTexture = currentTextureString,
+        fontFace = fontPath,
+    }
+end
+
+function Co_Tank_Frame_Mixin:OnConfigRefresh(configFrame, state)
+    local controls = configFrame.frameSpecificControls
+    if controls then
+        if controls.barTexture and state.barTexture then
+            local name = lib:GetMediaNameFromPath("statusbar", state.barTexture)
+            controls.barTexture:SetText(name)
+        end
+        if controls.fontFace and state.fontFace then
+            local name = lib:GetMediaNameFromPath("font", state.fontFace)
+            controls.fontFace:SetText(name)
+        end
     end
 end
 
@@ -509,60 +618,56 @@ local function InitializeCotankFrame()
     frame:SetSize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
     frame:SetMovable(true)
     frame:SetClampedToScreen(true)
-    
+    --backgroundTexture
     frame.bg = frame:CreateTexture(nil, "BACKGROUND")
     frame.bg:SetAllPoints()
     frame.bg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
-
     frame:SetBackdrop({edgeFile = BACKDROP_TEXTURE, edgeSize = 1})
     frame:SetBackdropBorderColor(0, 0, 0, 1)
-
+    -- Health bar
     frame.health = CreateFrame("StatusBar", nil, frame)
-    -- 1. Adjust Health Bar (Stop it 4px from the bottom)
     frame.health:SetPoint("TOPLEFT", 1, -1)
     frame.health:SetPoint("BOTTOMRIGHT", -1, POWER_BAR_HEIGHT + 2) -- Raised by height + 2px gap
-
-    -- 2. Create Power Bar
+    frame.health.statusBarTextureString = Co_Tank_Frame_Settings.barTexture or BACKDROP_TEXTURE
+    frame.health:SetStatusBarTexture(frame.health.statusBarTextureString)
+    -- Power Bar
     frame.power = CreateFrame("StatusBar", nil, frame)
     frame.power:SetHeight(POWER_BAR_HEIGHT) -- Thin, modern look
     frame.power:SetPoint("TOPLEFT", frame.health, "BOTTOMLEFT", 0, -1)
     frame.power:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-    frame.power:SetStatusBarTexture(BACKDROP_TEXTURE)
-
-    -- 3. Power Background
+    frame.power.statusBarTextureString = Co_Tank_Frame_Settings.barTexture or BACKDROP_TEXTURE
+    frame.power:SetStatusBarTexture(frame.power.statusBarTextureString)
+    -- Power Background
     frame.powerBG = frame.power:CreateTexture(nil, "BACKGROUND")
     frame.powerBG:SetAllPoints()
     frame.powerBG:SetColorTexture(0, 0, 0, 0.5)
 
-    frame.health:SetStatusBarTexture(BACKDROP_TEXTURE)
-
-    -- Name Text (Slot 1)
+    -- Name Text (row 1)
     frame.nameText = frame.health:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
-    local fontFace, fontSize, fontFlags = frame.nameText:GetFont()
-    frame.nameText:SetFont(fontFace, 14, "OUTLINE")
+    frame.nameText:SetFont(Co_Tank_Frame_Settings.fontFace or DEFAULT_FONT_FACE, 14, "OUTLINE")
     frame.nameText:SetPoint("BOTTOMLEFT", frame.health, "LEFT", 6, 4) -- Nudged up
     frame.nameText:SetJustifyH("LEFT")
     frame.nameText:SetIgnoreParentAlpha(false)
 
-    -- HP Text (Slot 2)
+    -- HP Text (row 2 2)
     frame.hpText = frame.health:CreateFontString(nil, "OVERLAY", "TextStatusBarText")
+    frame.hpText:SetFont(Co_Tank_Frame_Settings.fontFace or DEFAULT_FONT_FACE, 12, "OUTLINE")
     frame.hpText:SetPoint("TOPLEFT", frame.health, "LEFT", 6, -4) -- Nudged down
     frame.hpText:SetJustifyH("LEFT")
     frame.hpText:SetTextColor(0.9, 0.9, 0.9)
     frame.hpText:SetIgnoreParentAlpha(false)
-    
+    --Debuffs, below bar
     frame.debuffs = {}
     for i = 1, DEBUFF_MAX_COUNT do
         CreateIconFrame(frame.debuffs,DEBUFF_ICON_SIZE, "TOPRIGHT", frame,"BOTTOMRIGHT", 0, 0)
     end
-
+    -- defensives, on bar right aligned
     frame.bigDefensives = {}
     for i = 1, BIG_DEFENSIVES_MAX_COUNT do
         local bigDefensiveIconSize = DEFAULT_HEIGHT - POWER_BAR_HEIGHT - 4 - 4
         CreateIconFrame(frame.bigDefensives,bigDefensiveIconSize,"RIGHT", frame.health, "RIGHT", -1 * DEBUFF_SPACING, 2 )
     end
-
-    -- Assign Scripts
+    --Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
     frame:SetScript("OnEvent", frame.UpdateVisuals)
     frame:SetScript("OnShow", function(self)
@@ -573,8 +678,9 @@ local function InitializeCotankFrame()
         self:CleanupPrivateAnchors()
     end)
 
+    --Register with FerrozEditModeLib
     if lib then
-        lib:Register(frame, Co_Tank_Frame_Settings)
+        lib:Register(frame, Co_Tank_Frame_Settings,{height=DEFAULT_HEIGHT,width=DEFAULT_WIDTH})
     end
 
     -- External State Controller (Manager)
