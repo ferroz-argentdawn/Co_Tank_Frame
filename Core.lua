@@ -21,7 +21,7 @@ local DEBUFF_MAX_COUNT = 5
 local DEBUFF_AURA_FILTER = "HARMFUL"
 --defensives
 local BIG_DEFENSIVES_MAX_COUNT = 1
-local BIG_DEFENSIVE_AURA_FILTER = "BIG_DEFENSIVE"
+local BIG_DEFENSIVE_AURA_FILTER = "HELPFUL|BIG_DEFENSIVE"
 --filter mode lists
 local FILTER_MODES = {
     AURAS = "Private Auras",
@@ -664,8 +664,8 @@ local function InitializeCotankFrame()
     -- defensives, on bar right aligned
     frame.bigDefensives = {}
     for i = 1, BIG_DEFENSIVES_MAX_COUNT do
-        local bigDefensiveIconSize = DEFAULT_HEIGHT - POWER_BAR_HEIGHT - 4 - 4
-        CreateIconFrame(frame.bigDefensives,bigDefensiveIconSize,"RIGHT", frame.health, "RIGHT", -1 * DEBUFF_SPACING, 2 )
+        local bigDefensiveIconSize = DEFAULT_HEIGHT - POWER_BAR_HEIGHT - 16
+        CreateIconFrame(frame.bigDefensives,bigDefensiveIconSize,"RIGHT", frame.health, "RIGHT", -1 * DEBUFF_SPACING, -2 )
     end
     --Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
