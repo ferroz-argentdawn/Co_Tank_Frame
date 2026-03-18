@@ -410,7 +410,7 @@ function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainers()
         container:SetBackdrop({
             bgFile = "Interface\\ChatFrame\\ChatFrameBackground", -- Standard solid textur
         })
-        container:SetBackdropColor(0, 0, 0, 0.3) -- Semi-transparent black
+        container:SetBackdropColor(0, 0, 0, 0.5) -- Semi-transparent black
 
         local auraAnchor = CreateFrame("Frame", nil, container)
         auraAnchor:SetAllPoints(container)
@@ -440,22 +440,22 @@ function Co_Tank_Frame_Mixin:AttachPrivateAnchors()
             unitToken = unit,
             auraIndex = i,
             parent = self.anchorFrames[i],
-            showCountdownFrame = false,
-            showCountdownNumbers = false,
-            durationAnchor = {
+            showCountdownFrame = false, -- sweep + default centered text
+            showCountdownNumbers = false,--default centered text
+            durationAnchor = { -- custom text without sweep, shifted up
                 point = "BOTTOM",
                 relativeTo = self.anchorFrames[i],
-                relativePoint = "CENTER",
+                relativePoint = "TOP",
                 offsetX = 0,
-                offsetY = 4,
+                offsetY = 2,
             },
             iconInfo = {
                 iconWidth = PRIVATE_AURA_CONTAINER_SIZE - 2,
                 iconHeight = PRIVATE_AURA_CONTAINER_SIZE - 2,
                 iconAnchor = {
-                    point = "CENTER",
+                    point = "BOTTOM",
                     relativeTo = self.anchorFrames[i],
-                    relativePoint = "CENTER",
+                    relativePoint = "BOTTOM",
                     offsetX = 0,
                     offsetY = 0,
                 },
