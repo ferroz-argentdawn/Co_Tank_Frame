@@ -80,10 +80,6 @@ local function SettingNumber(key, default)
     return tonumber(val) or default
 end
 
-local function CalculateScaleFactor()
-    return (Co_Tank_Frame_Settings and Co_Tank_Frame_Settings.scaleFactorPrivateAuras) or PRIVATE_AURAS_DEFAULT_SCALE_FACTOR
-end
-
 local function FindCoTank()
     if isTestMode then return "player" end
     local groupType = IsInRaid() and "raid" or (IsInGroup() and "party")
@@ -112,6 +108,9 @@ function Co_Tank_Frame_Mixin:MaxShownDebuffs()
 end
 function Co_Tank_Frame_Mixin:MaxShownDefensives()
     return self.maxDefensives or SettingNumber("maxDefensives",BIG_DEFENSIVES_DEFAULT_COUNT)
+end
+function Co_Tank_Frame_Mixin:ScaleFactorPrivateAuras()
+    return self.scaleFactorPrivateAuras or SettingNumber("scaleFactorPrivateAuras",PRIVATE_AURAS_DEFAULT_SCALE_FACTOR)
 end
 --boolean show if > 0
 function Co_Tank_Frame_Mixin:ShowPrivateAuras()
@@ -403,18 +402,15 @@ end
 function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainers()
     if InCombatLockdown() or self.anchorFrames then return end
     self.anchorFrames = {}
-    local scaleFactor = CalculateScaleFactor()
+    local scaleFactor = self:ScaleFactorPrivateAuras()
     for i = 1, PRIVATE_AURAS_MAX_COUNT do
         -- Visible container for the border
         local container = CreateFrame("Frame", nil, self, "BackdropTemplate")
         container:SetSize(PRIVATE_AURA_CONTAINER_SIZE,PRIVATE_AURA_CONTAINER_SIZE)
         container:SetBackdrop({
             bgFile = "Interface\\ChatFrame\\ChatFrameBackground", -- Standard solid textur
-            edgeFile = BACKDROP_TEXTURE,
-            edgeSize = 1,
         })
-        container:SetBackdropColor(0, 0, 0, 0.1) -- Semi-transparent black
-        container:SetBackdropBorderColor(0, 0, 0, 1)
+        container:SetBackdropColor(0, 0, 0, 0.3) -- Semi-transparent black
 
         local auraAnchor = CreateFrame("Frame", nil, container)
         auraAnchor:SetAllPoints(container)
@@ -444,11 +440,18 @@ function Co_Tank_Frame_Mixin:AttachPrivateAnchors()
             unitToken = unit,
             auraIndex = i,
             parent = self.anchorFrames[i],
-            showCountdownFrame = true,
-            showCountdownNumbers = true,
+            showCountdownFrame = false,
+            showCountdownNumbers = false,
+            durationAnchor = {
+                point = "BOTTOM",
+                relativeTo = self.anchorFrames[i],
+                relativePoint = "CENTER",
+                offsetX = 0,
+                offsetY = 4,
+            },
             iconInfo = {
-                iconWidth = PRIVATE_AURA_CONTAINER_SIZE - 4,
-                iconHeight = PRIVATE_AURA_CONTAINER_SIZE - 4,
+                iconWidth = PRIVATE_AURA_CONTAINER_SIZE - 2,
+                iconHeight = PRIVATE_AURA_CONTAINER_SIZE - 2,
                 iconAnchor = {
                     point = "CENTER",
                     relativeTo = self.anchorFrames[i],
