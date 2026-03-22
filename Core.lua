@@ -81,11 +81,15 @@ local function SettingNumber(key, default)
     return tonumber(val) or default
 end
 
-local function FindCoTank()
+---------------------------------------------------------
+-- MIXINS 
+---------------------------------------------------------
+local Co_Tank_Frame_Mixin = {}
+function Co_Tank_Frame_Mixin:FindCoTank()
     if isTestMode then return "player" end
     local groupType = IsInRaid() and "raid" or (IsInGroup() and "party")
     if not groupType then return nil end
-    
+
     local count = GetNumGroupMembers()
     for i = 1, count do
         local unit = groupType..i
@@ -96,11 +100,10 @@ local function FindCoTank()
     return nil
 end
 
----------------------------------------------------------
--- MIXINS 
----------------------------------------------------------
-local Co_Tank_Frame_Mixin = {}
 --values from current, settings or default
+function Co_Tank_Frame_Mixin:RaidInstancesOnly()
+    return self.raidInstancesOnly or SettingNumber("raidInstancesOnly", 0)
+end
 function Co_Tank_Frame_Mixin:AuraBackgroundAlpha()
     return self.auraBackgroundAlpha or SettingNumber("auraBackgroundAlpha", PRIVATE_AURAS_BACKGROUND_ALPHA)
 end
@@ -299,7 +302,8 @@ function Co_Tank_Frame_Mixin:UpdateIconList(frameList, maxCount)
 end
 
 function Co_Tank_Frame_Mixin:UpdateAndRefreshAuraAlpha(newVal)
-    local changed = self:AuraBackgroundAlpha() ~= newVal
+    local diff = math.abs(self:AuraBackgroundAlpha() - newVal)
+    local changed = diff > 0.0001
     self.auraBackgroundAlpha = newVal
     for i=1, #self.anchorFrames do
         local iconFrame = self.anchorFrames[i]
@@ -651,7 +655,7 @@ function Co_Tank_Frame_Mixin:EditModeStopMock()
     end
     RegisterUnitWatch(self)
     if not InCombatLockdown() then
-        local realTank = FindCoTank()
+        local realTank = self:FindCoTank()
         self:SetAttribute("unit", realTank)
         --Give the 12.0 engine a moment to 'unlock' the tank data
         C_Timer.After(0.1, function()
@@ -680,6 +684,10 @@ function Co_Tank_Frame_Mixin:GetOrCreateFrameSpecificControls(socket)
             self.extraControls.fontFace:SetText(name)
         end
         
+        --display in instances only 
+        self.raidInstancesOnly = SettingNumber("raidInstancesOnly", 0)
+        self.extraControls.raidInstancesOnly = lib:CreateSliderRow(p, "TBD", "raidInstancesOnly", 0, 1, 1, lib.CONFIG_ROW_LABEL_WIDTH * 2)
+        self.extraControls.raidInstancesOnly.slider:SetValue(self.raidInstancesOnly)
         --auras
         self.auraBackgroundAlpha = SettingNumber("auraBackgroundAlpha", PRIVATE_AURAS_BACKGROUND_ALPHA)
         self.extraControls.auraBackgroundAlpha = lib:CreateSliderRow(p, "Aura BG", "auraBackgroundAlpha", 0.0, 1.0, 0.05, lib.CONFIG_ROW_LABEL_WIDTH * 2)
@@ -704,6 +712,7 @@ function Co_Tank_Frame_Mixin:CommitFrameSpecificFields()
     if not self.workingState then return end
     Co_Tank_Frame_Settings.barTexture = self.workingState.barTexture
     Co_Tank_Frame_Settings.fontFace = self.workingState.fontFace
+    Co_Tank_Frame_Settings.raidInstancesOnly = self.raidInstancesOnly
     Co_Tank_Frame_Settings.auraBackgroundAlpha = self.workingState.auraBackgroundAlpha
     Co_Tank_Frame_Settings.maxPrivateAuras = self.workingState.maxPrivateAuras
     Co_Tank_Frame_Settings.maxDebuffs = self.workingState.maxDebuffs
@@ -719,7 +728,10 @@ function Co_Tank_Frame_Mixin:UpdateFromState(state)
     if state.fontFace then
         changed =  self:UpdateMedia("font",state) or changed
     end
-    lib:Log("Applying state vaiues: ",state.maxPrivateAuras,",",state.maxDebuffs,",",state.maxDefensives)
+    if state.raidInstancesOnly then
+        changed = (self:RaidInstancesOnly() ~= state.raidInstancesOnly ) or changed
+        self.raidInstancesOnly = state.raidInstancesOnly
+    end
     if state.auraBackgroundAlpha then
         changed = self:UpdateAndRefreshAuraAlpha(state.auraBackgroundAlpha) or changed
     end
@@ -745,6 +757,7 @@ function Co_Tank_Frame_Mixin:GetFrameSpecificSnapshot()
     return {
         barTexture = currentTextureString,
         fontFace = fontPath,
+        raidInstancesOnly = self:RaidInstancesOnly(),
         auraBackgroundAlpha = self:AuraBackgroundAlpha(),
         maxPrivateAuras = self:MaxShownPrivateAuras(),
         maxDebuffs = self:MaxShownDebuffs(),
@@ -762,6 +775,12 @@ function Co_Tank_Frame_Mixin:OnConfigRefresh(configFrame, state)
         if controls.fontFace and state.fontFace then
             local name = lib:GetMediaNameFromPath("font", state.fontFace)
             controls.fontFace:SetText(name)
+        end
+        if controls.raidInstancesOnly and state.raidInstancesOnly then
+            controls.raidInstancesOnly.slider:SetValue(state.raidInstancesOnly)
+        end
+        if controls.auraBackgroundAlpha and state.auraBackgroundAlpha then
+            controls.auraBackgroundAlpha.slider:SetValue(state.auraBackgroundAlpha)
         end
         if controls.maxPrivateAuras and state.maxPrivateAuras then
             controls.maxPrivateAuras.slider:SetValue(state.maxPrivateAuras)
@@ -862,12 +881,12 @@ local function InitializeCotankFrame()
     manager:RegisterEvent("PLAYER_ENTERING_WORLD")
     manager:SetScript("OnEvent", function(self, event)
         if not InCombatLockdown() then
-            --todo maybe handle gracefully initializing if you happen to log in and are already in combat lockdown.  TBD march
+            --todo maybe handle gracefully initializing if you happen to log in and are already in combat lockdown.  TBD march/april
             if not frame.anchorFrames then
                 frame:CreatePrivateAnchorContainers()
             end
             local myRole = UnitGroupRolesAssigned("player")
-            local currentTank = FindCoTank()
+            local currentTank = frame:FindCoTank()
             if myRole == "TANK" and currentTank then
                 frame:SetAttribute("unit", currentTank)
                 RegisterUnitWatch(frame) -- Engine handles showing it
@@ -928,8 +947,8 @@ SlashCmdList["COTANK"] = function(msg)
                 Co_Tank_Frame:SetAttribute("unit", "player")
                 Co_Tank_Frame:Show()
             else
-                local tankUnit = FindCoTank()
-                Co_Tank_Frame:SetAttribute("unit", FindCoTank())
+                local tankUnit = Co_Tank_Frame:FindCoTank()
+                Co_Tank_Frame:SetAttribute("unit", tankUnit)
                 RegisterUnitWatch(Co_Tank_Frame)
             end
             Co_Tank_Frame:UpdateVisuals()
