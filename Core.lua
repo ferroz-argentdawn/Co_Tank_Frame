@@ -27,6 +27,7 @@ local BIG_DEFENSIVES_MIN_COUNT = 0
 local BIG_DEFENSIVES_MAX_COUNT = 3
 local BIG_DEFENSIVE_AURA_FILTER = "HELPFUL|BIG_DEFENSIVE"
 
+local PRIVATE_AURAS_BACKGROUND_ALPHA = 0.5
 local PRIVATE_AURAS_DEFAULT_COUNT = 4
 local PRIVATE_AURAS_MIN_COUNT = 0
 local PRIVATE_AURAS_MAX_COUNT = 10
@@ -100,6 +101,9 @@ end
 ---------------------------------------------------------
 local Co_Tank_Frame_Mixin = {}
 --values from current, settings or default
+function Co_Tank_Frame_Mixin:AuraBackgroundAlpha()
+    return self.auraBackgroundAlpha or SettingNumber("auraBackgroundAlpha", PRIVATE_AURAS_BACKGROUND_ALPHA)
+end
 function Co_Tank_Frame_Mixin:MaxShownPrivateAuras()
     return self.maxPrivateAuras or SettingNumber("maxPrivateAuras", PRIVATE_AURAS_DEFAULT_COUNT)
 end
@@ -294,6 +298,16 @@ function Co_Tank_Frame_Mixin:UpdateIconList(frameList, maxCount)
     end
 end
 
+function Co_Tank_Frame_Mixin:UpdateAndRefreshAuraAlpha(newVal)
+    local changed = self:AuraBackgroundAlpha() ~= newVal
+    self.auraBackgroundAlpha = newVal
+    for i=1, #self.anchorFrames do
+        local iconFrame = self.anchorFrames[i]
+        iconFrame:SetBackdropColor(0, 0, 0, self:AuraBackgroundAlpha())
+    end
+    return changed
+end
+
 function Co_Tank_Frame_Mixin:UpdateAndRefreshAuraLayout(newVal)
     local changed = self:MaxShownPrivateAuras() ~= newVal
     self.maxPrivateAuras = newVal
@@ -410,7 +424,7 @@ function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainers()
         container:SetBackdrop({
             bgFile = "Interface\\ChatFrame\\ChatFrameBackground", -- Standard solid textur
         })
-        container:SetBackdropColor(0, 0, 0, 0.5) -- Semi-transparent black
+        container:SetBackdropColor(0, 0, 0, self:AuraBackgroundAlpha()) -- Semi-transparent black
 
         local auraAnchor = CreateFrame("Frame", nil, container)
         auraAnchor:SetAllPoints(container)
@@ -505,7 +519,7 @@ function Co_Tank_Frame_Mixin:OnAttributeChanged(name, value)
 end
 
 function Co_Tank_Frame_Mixin:OnSizeChangedHandler(width, height)
-    self:FitNameToWidth() 
+    self:FitNameToWidth()
 end
 
 function Co_Tank_Frame_Mixin:SetNameText(nameText)
@@ -665,8 +679,11 @@ function Co_Tank_Frame_Mixin:GetOrCreateFrameSpecificControls(socket)
             local name = lib:GetMediaNameFromPath("font", state.fontFace)
             self.extraControls.fontFace:SetText(name)
         end
-
+        
         --auras
+        self.auraBackgroundAlpha = SettingNumber("auraBackgroundAlpha", PRIVATE_AURAS_BACKGROUND_ALPHA)
+        self.extraControls.auraBackgroundAlpha = lib:CreateSliderRow(p, "Aura BG", "auraBackgroundAlpha", 0.0, 1.0, 0.05, lib.CONFIG_ROW_LABEL_WIDTH * 2)
+        self.extraControls.auraBackgroundAlpha.slider:SetValue(self.auraBackgroundAlpha)
         self.maxPrivateAuras = SettingNumber("maxPrivateAuras", PRIVATE_AURAS_DEFAULT_COUNT)
         self.extraControls.maxPrivateAuras = lib:CreateSliderRow(p, "# Auras", "maxPrivateAuras", PRIVATE_AURAS_MIN_COUNT, PRIVATE_AURAS_MAX_COUNT, 1, lib.CONFIG_ROW_LABEL_WIDTH * 2)
         self.extraControls.maxPrivateAuras.slider:SetValue(self.maxPrivateAuras)
@@ -687,6 +704,7 @@ function Co_Tank_Frame_Mixin:CommitFrameSpecificFields()
     if not self.workingState then return end
     Co_Tank_Frame_Settings.barTexture = self.workingState.barTexture
     Co_Tank_Frame_Settings.fontFace = self.workingState.fontFace
+    Co_Tank_Frame_Settings.auraBackgroundAlpha = self.workingState.auraBackgroundAlpha
     Co_Tank_Frame_Settings.maxPrivateAuras = self.workingState.maxPrivateAuras
     Co_Tank_Frame_Settings.maxDebuffs = self.workingState.maxDebuffs
     Co_Tank_Frame_Settings.maxDefensives = self.workingState.maxDefensives
@@ -702,6 +720,9 @@ function Co_Tank_Frame_Mixin:UpdateFromState(state)
         changed =  self:UpdateMedia("font",state) or changed
     end
     lib:Log("Applying state vaiues: ",state.maxPrivateAuras,",",state.maxDebuffs,",",state.maxDefensives)
+    if state.auraBackgroundAlpha then
+        changed = self:UpdateAndRefreshAuraAlpha(state.auraBackgroundAlpha) or changed
+    end
     if state.maxPrivateAuras then
         changed = self:UpdateAndRefreshAuraLayout(state.maxPrivateAuras) or changed
     end
@@ -724,6 +745,7 @@ function Co_Tank_Frame_Mixin:GetFrameSpecificSnapshot()
     return {
         barTexture = currentTextureString,
         fontFace = fontPath,
+        auraBackgroundAlpha = self:AuraBackgroundAlpha(),
         maxPrivateAuras = self:MaxShownPrivateAuras(),
         maxDebuffs = self:MaxShownDebuffs(),
         maxDefensives = self:MaxShownDefensives(),
@@ -882,19 +904,6 @@ loader:SetScript("OnEvent", function(self, event, name)
     end
 end)
 
-StaticPopupDialogs["COTANK_RELOAD_UI"] = {
-    text = "CoTank: You need to reload your UI to apply the new aura settings.",
-    button1 = "Reload",
-    button2 = "Later",
-    OnAccept = function()
-        ReloadUI()
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
 ---------------------------------------------------------
 -- MAIN SLASH COMMAND
 ---------------------------------------------------------
@@ -908,18 +917,6 @@ SlashCmdList["COTANK"] = function(msg)
             lib:ResetPosition(Co_Tank_Frame)
         end
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Settings and position have been reset.")
-    elseif cmd == "maxauras" or cmd == "limit" then
-        local num = tonumber(arg)
-        if num == nil then
-            num = PRIVATE_AURAS_DEFAULT_COUNT
-        elseif
-            num > PRIVATE_AURAS_MAX_COUNT then num = PRIVATE_AURAS_MAX_COUNT
-        elseif
-            num < PRIVATE_AURAS_MIN_COUNT then num = PRIVATE_AURAS_MIN_COUNT
-        end
-        Co_Tank_Frame_Settings.maxPrivateAuras = num
-        print(FERROZ_COLOR:WrapTextInColorCode("CoTank:").." Max Private Auras set to: " .. Co_Tank_Frame_Settings.maxPrivateAuras)
-        --StaticPopup_Show("COTANK_RELOAD_UI")
     elseif cmd == "test" then
         isTestMode = not isTestMode
         local status = isTestMode and GREEN_FONT_COLOR:WrapTextInColorCode("ON") or RED_FONT_COLOR:WrapTextInColorCode("OFF")
@@ -941,6 +938,5 @@ SlashCmdList["COTANK"] = function(msg)
     else
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank Commands"))
         print("  /cotank reset - Resets frame position")
-        print("  /cotank maxauras # - changes the maximum number of auras shown")
     end
 end
