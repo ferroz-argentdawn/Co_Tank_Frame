@@ -174,7 +174,7 @@ function Co_Tank_Frame_Mixin:UpdateBigDefensives()
             iconFrame.count:SetAlpha(0)
         end
         if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
         else
             iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
         end
@@ -193,12 +193,10 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
 
     self:ClearDebuffs()--hide all
 
-    local idx = 1 -- 1 indexed
-    for auraIdx = 1, 40 do
-        if idx > self:MaxShownDebuffs() then break end
+    for auraIdx = 1, self:MaxShownDebuffs() do
         local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, DEBUFF_AURA_FILTER)
         if not aura then break end
-        local iconFrame = self.debuffs[idx]
+        local iconFrame = self.debuffs[auraIdx]
         iconFrame.auraInstanceID = aura.auraInstanceID
         iconFrame.icon:SetTexture(aura.icon)
         iconFrame.count:SetFormattedText("%s", aura.applications)
@@ -208,12 +206,11 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
             iconFrame.count:SetAlpha(0)
         end
         if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
         else
             iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
         end
         iconFrame:SetAlpha(1)
-        idx = idx + 1
     end
 
 end
@@ -363,7 +360,7 @@ local function CreateIconFrame(iconList, iconSize, point, parent, relativePoint,
 
     -- COOLDOWN
     iconFrame.cd = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
-    iconFrame.cd:SetAllPoints(iconFrame.icon)
+    iconFrame.cd:SetAllPoints(iconFrame)
     iconFrame.cd:SetReverse(true) -- Darken the spent time, keep remaining time bright
     iconFrame.cd:SetHideCountdownNumbers(false)
 
@@ -874,6 +871,8 @@ local function InitializeCotankFrame()
         lib:Register(frame, Co_Tank_Frame_Settings,{height=DEFAULT_HEIGHT,width=DEFAULT_WIDTH})
     end
 
+    
+
     -- External State Controller (Manager)
     local manager = CreateFrame("Frame")
     manager:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -894,6 +893,10 @@ local function InitializeCotankFrame()
                 UnregisterUnitWatch(frame)
                 frame:Hide()
                 frame:SetAttribute("unit", nil)
+                --force always test mode
+                --frame:SetAttribute("unit", "player")
+                --frame:Show()
+                --RegisterUnitWatch(frame)
             end
             if lib then
                 lib:ApplyLayout(frame)
