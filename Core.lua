@@ -174,7 +174,7 @@ function Co_Tank_Frame_Mixin:UpdateBigDefensives()
             iconFrame.count:SetAlpha(0)
         end
         if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
         else
             iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
         end
@@ -208,7 +208,7 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
             iconFrame.count:SetAlpha(0)
         end
         if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
         else
             iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
         end
