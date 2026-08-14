@@ -159,28 +159,28 @@ function Co_Tank_Frame_Mixin:UpdateBigDefensives()
         return
     end
     self:ClearBigDefensives()
-
-    for auraIdx = 1, self:MaxShownDefensives() do
-        local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, BIG_DEFENSIVE_AURA_FILTER)
-        
-        if not aura then break end
+    local auraIdx = 1
+    AuraUtil.ForEachAura(unit, BIG_DEFENSIVE_AURA_FILTER, self:MaxShownDefensives(), function(aura)  
+        if not aura then return true end
         local iconFrame = self.bigDefensives[auraIdx]
-        iconFrame.auraInstanceID = aura.auraInstanceID
-        iconFrame.icon:SetTexture(aura.icon)
-        iconFrame.count:SetFormattedText("%s", aura.applications)
-        if(aura.applications) then
-            iconFrame.count:SetAlpha(aura.applications)
-        else
-            iconFrame.count:SetAlpha(0)
+        if iconFrame then
+            iconFrame.auraInstanceID = aura.auraInstanceID
+            iconFrame.icon:SetTexture(aura.icon)
+            iconFrame.count:SetFormattedText("%s", aura.applications or "")
+            if(aura.applications) then
+                iconFrame.count:SetAlpha(aura.applications)
+            else
+                iconFrame.count:SetAlpha(0)
+            end
+            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
+                --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            else
+                iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
+            end
+            iconFrame:SetAlpha(1)
         end
-        if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-        else
-            iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
-        end
-        iconFrame:SetAlpha(1)
-    end
-
+        auraIdx = auraIdx + 1
+    end)
 end
 
 function Co_Tank_Frame_Mixin:UpdateDebuffs()
@@ -192,26 +192,28 @@ function Co_Tank_Frame_Mixin:UpdateDebuffs()
     end
 
     self:ClearDebuffs()--hide all
-
-    for auraIdx = 1, self:MaxShownDebuffs() do
-        local aura = C_UnitAuras.GetAuraDataByIndex(unit, auraIdx, DEBUFF_AURA_FILTER)
-        if not aura then break end
+    local auraIdx = 1
+    AuraUtil.ForEachAura(unit, DEBUFF_AURA_FILTER, self:MaxShownDebuffs(), function(aura)
+        if not aura then return true end
         local iconFrame = self.debuffs[auraIdx]
-        iconFrame.auraInstanceID = aura.auraInstanceID
-        iconFrame.icon:SetTexture(aura.icon)
-        iconFrame.count:SetFormattedText("%s", aura.applications)
-        if(aura.applications) then
-            iconFrame.count:SetAlpha(aura.applications)
-        else
-            iconFrame.count:SetAlpha(0)
+        if iconFrame then
+            iconFrame.auraInstanceID = aura.auraInstanceID
+            iconFrame.icon:SetTexture(aura.icon)
+            iconFrame.count:SetFormattedText("%s", aura.applications or "")
+            if(aura.applications) then
+                iconFrame.count:SetAlpha(aura.applications)
+            else
+                iconFrame.count:SetAlpha(0)
+            end
+            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
+                --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
+            else
+                iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
+            end
+            iconFrame:SetAlpha(1)
         end
-        if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-            --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-        else
-            iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
-        end
-        iconFrame:SetAlpha(1)
-    end
+        auraIdx = auraIdx + 1
+    end)
 
 end
 
