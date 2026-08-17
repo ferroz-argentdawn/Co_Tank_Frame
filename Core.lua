@@ -21,11 +21,13 @@ local DEBUFF_DEFAULT_COUNT = 5
 local DEBUFF_MIN_COUNT = 0
 local DEBUFF_MAX_COUNT = 10
 local DEBUFF_AURA_FILTER = "HARMFUL"
+local DEBUFF_AURA_GROUP_KEY = "DEBUFFAURAS"
 --defensives
 local BIG_DEFENSIVES_DEFAULT_COUNT =1
 local BIG_DEFENSIVES_MIN_COUNT = 0
 local BIG_DEFENSIVES_MAX_COUNT = 3
 local BIG_DEFENSIVE_AURA_FILTER = "HELPFUL|BIG_DEFENSIVE"
+local BIG_DEFENSIVE_AURA_GROUP_KEY = "BIGDEFENSIVEAURAS"
 
 local PRIVATE_AURAS_BACKGROUND_ALPHA = 0.5
 local PRIVATE_AURAS_DEFAULT_COUNT = 4
@@ -130,93 +132,6 @@ function Co_Tank_Frame_Mixin:ShowDefensives()
     return self:MaxShownDefensives() > 0
 end
 
-function Co_Tank_Frame_Mixin:ClearDebuffs()
-    if self.debuffs then
-        for i = 1, #self.debuffs do 
-            self.debuffs[i]:SetAlpha(0)
-            self.debuffs[i].icon:SetTexture(nil)
-            self.debuffs[i].count:SetText("");
-            self.debuffs[i].cd:SetCooldown(0,0)
-        end
-    end
-end
-function Co_Tank_Frame_Mixin:ClearBigDefensives()
-    if self.bigDefensives then 
-        for i = 1, #self.bigDefensives do
-            self.bigDefensives[i]:SetAlpha(0)
-            self.bigDefensives[i].icon:SetTexture(nil)
-            self.bigDefensives[i].count:SetText("");
-            self.bigDefensives[i].cd:SetCooldown(0,0)
-        end
-    end 
-end
-
-function Co_Tank_Frame_Mixin:UpdateBigDefensives()
-    local unit = self:GetAttribute("unit")
-    local isEditMode = IsInEditMode() or self.isEditing
-
-    if not self:ShowDefensives() or not unit or not UnitExists(unit) or isEditMode then
-        return
-    end
-    self:ClearBigDefensives()
-    local auraIdx = 1
-    AuraUtil.ForEachAura(unit, BIG_DEFENSIVE_AURA_FILTER, self:MaxShownDefensives(), function(aura)  
-        if not aura then return true end
-        local iconFrame = self.bigDefensives[auraIdx]
-        if iconFrame then
-            iconFrame.auraInstanceID = aura.auraInstanceID
-            iconFrame.icon:SetTexture(aura.icon)
-            iconFrame.count:SetFormattedText("%s", aura.applications or "")
-            if(aura.applications) then
-                iconFrame.count:SetAlpha(aura.applications)
-            else
-                iconFrame.count:SetAlpha(0)
-            end
-            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-                --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-            else
-                iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
-            end
-            iconFrame:SetAlpha(1)
-        end
-        auraIdx = auraIdx + 1
-    end)
-end
-
-function Co_Tank_Frame_Mixin:UpdateDebuffs()
-    local unit = self:GetAttribute("unit")
-    local isEditMode = IsInEditMode() or self.isEditing
-
-    if not self:ShowDebuffs() or not unit or not UnitExists(unit) or isEditMode then
-        return
-    end
-
-    self:ClearDebuffs()--hide all
-    local auraIdx = 1
-    AuraUtil.ForEachAura(unit, DEBUFF_AURA_FILTER, self:MaxShownDebuffs(), function(aura)
-        if not aura then return true end
-        local iconFrame = self.debuffs[auraIdx]
-        if iconFrame then
-            iconFrame.auraInstanceID = aura.auraInstanceID
-            iconFrame.icon:SetTexture(aura.icon)
-            iconFrame.count:SetFormattedText("%s", aura.applications or "")
-            if(aura.applications) then
-                iconFrame.count:SetAlpha(aura.applications)
-            else
-                iconFrame.count:SetAlpha(0)
-            end
-            if( iconFrame.cd.SetCooldownFromExpirationTime and type(iconFrame.cd.SetCooldownFromExpirationTime) == "function") then
-                --iconFrame.cd:SetCooldownFromExpirationTime(aura.expirationTime, aura.duration)
-            else
-                iconFrame.cd:SetCooldown(0, 0) -- can't show it, shouldn't happen
-            end
-            iconFrame:SetAlpha(1)
-        end
-        auraIdx = auraIdx + 1
-    end)
-
-end
-
 function Co_Tank_Frame_Mixin:UpdateHealthBarColor()
     local unit = self:GetAttribute("unit")
     local color
@@ -304,10 +219,7 @@ function Co_Tank_Frame_Mixin:UpdateAndRefreshAuraAlpha(newVal)
     local diff = math.abs(self:AuraBackgroundAlpha() - newVal)
     local changed = diff > 0.0001
     self.auraBackgroundAlpha = newVal
-    for i=1, #self.anchorFrames do
-        local iconFrame = self.anchorFrames[i]
-        iconFrame:SetBackdropColor(0, 0, 0, self:AuraBackgroundAlpha())
-    end
+    --TODO set alpha on  self.privateAuraContainer or children
     return changed
 end
 
@@ -330,14 +242,8 @@ function Co_Tank_Frame_Mixin:UpdateAndRefreshDefensiveLayout(newVal)
     return changed
 end
 
-function Co_Tank_Frame_Mixin:RefreshAuraLayout()
-    self:UpdateIconList(self.anchorFrames, self:MaxShownPrivateAuras())
-end
 function Co_Tank_Frame_Mixin:RefreshDebuffLayout()
     self:UpdateIconList(self.debuffs, self:MaxShownDebuffs())
-end
-function Co_Tank_Frame_Mixin:RefreshDefensiveLayout()
-    self:UpdateIconList(self.bigDefensives, self:MaxShownDefensives())
 end
 
 local function CreateIconFrame(iconList, iconSize, point, parent, relativePoint, ofsx, ofsy)
@@ -406,94 +312,107 @@ function Co_Tank_Frame_Mixin:CreateDebuffContainer()
     end
     self:RefreshDebuffLayout()
 end
-function Co_Tank_Frame_Mixin:CreateDefensiveontainer()
-    if InCombatLockdown() or self.bigDefensives then return end
-    self.bigDefensives = {}
-    for i = 1, BIG_DEFENSIVES_MAX_COUNT do
-        local bigDefensiveIconSize = DEFAULT_HEIGHT - POWER_BAR_HEIGHT - 16
-        local iconFrame = CreateIconFrame(self.bigDefensives,bigDefensiveIconSize,"RIGHT", self.health, "RIGHT", -1 * DEBUFF_SPACING, -2 )
-    end
-    self:RefreshDefensiveLayout()
+function Co_Tank_Frame_Mixin:CreateDefensiveContainer()
+    if InCombatLockdown() or self.bigDefensiveAuraContainer then return end
+    self.bigDefensiveAuraContainer = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate");
+    self.bigDefensiveAuraContainer:SetPoint("RIGHT", self.health, "RIGHT", 0, 0)
+    self:AttachDefensives()
 end
-
-function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainers()
-    if InCombatLockdown() or self.anchorFrames then return end
-    self.anchorFrames = {}
-    local scaleFactor = self:ScaleFactorPrivateAuras()
-    for i = 1, PRIVATE_AURAS_MAX_COUNT do
-        -- Visible container for the border
-        local container = CreateFrame("Frame", nil, self, "BackdropTemplate")
-        container:SetSize(PRIVATE_AURA_CONTAINER_SIZE,PRIVATE_AURA_CONTAINER_SIZE)
-        container:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground", -- Standard solid textur
-        })
-        container:SetBackdropColor(0, 0, 0, self:AuraBackgroundAlpha()) -- Semi-transparent black
-
-        local auraAnchor = CreateFrame("Frame", nil, container)
-        auraAnchor:SetAllPoints(container)
-        if i == 1 then
-            container:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 0)
-        else
-            container:SetPoint("RIGHT", self.anchorFrames[i-1], "LEFT", -DEBUFF_SPACING, 0)
-        end
-        self.anchorFrames[i] = container
-        self.anchorFrames[i]:SetAlpha(1)
-        self.anchorFrames[i]:SetScale(scaleFactor)
-    end
-    self:RefreshAuraLayout()--sets show/hide based on the user's configuration
-end
-
-function Co_Tank_Frame_Mixin:AttachPrivateAnchors()
+function Co_Tank_Frame_Mixin:AttachDefensives()
     local unit = self:GetAttribute("unit")
-    self:CleanupPrivateAnchors()
-    self:RefreshAuraLayout()
-    if not unit or not self:IsVisible() or not self:ShowPrivateAuras() then return end
+    if not self.bigDefensiveAuraContainer then return end
 
-    self.privateAnchorIDs = self.privateAnchorIDs or {}
-    self.anchorFrames = self.anchorFrames or {}
+    if self.bigDefensiveAuraContainer.ClearAuraGroups then
+        self.bigDefensiveAuraContainer:ClearAuraGroups()
+    elseif self.bigDefensiveAuraContainer.ClearAuraFilters then
+        self.bigDefensiveAuraContainer:ClearAuraFilters()
+    end
 
-    for i = 1, #self.anchorFrames do
-        local anchorData = {
-            unitToken = unit,
-            auraIndex = i,
-            parent = self.anchorFrames[i],
-            showCountdownFrame = false, -- sweep + default centered text
-            showCountdownNumbers = false,--default centered text
-            isContainer = false,
-            durationAnchor = { -- custom text without sweep, shifted up
-                point = "BOTTOM",
-                relativeTo = self.anchorFrames[i],
-                relativePoint = "TOP",
-                offsetX = 0,
-                offsetY = 2,
-            },
-            iconInfo = {
-                iconWidth = PRIVATE_AURA_CONTAINER_SIZE - 2,
-                iconHeight = PRIVATE_AURA_CONTAINER_SIZE - 2,
-                iconAnchor = {
-                    point = "BOTTOM",
-                    relativeTo = self.anchorFrames[i],
-                    relativePoint = "BOTTOM",
-                    offsetX = 0,
-                    offsetY = 0,
-                },
-            }
-        }
+    if not unit or not self:IsVisible() or not self:ShowDefensives() then
+        self.bigDefensiveAuraContainer:Hide()
+        return
+    end
 
-        local anchorID = C_UnitAuras.AddPrivateAuraAnchor(anchorData)
-        if anchorID then
-            table.insert(self.privateAnchorIDs, anchorID)
+    self.bigDefensiveAuraContainer:SetUnit(unit)
+    local maxDefensives = self:MaxShownDefensives() or BIG_DEFENSIVES_DEFAULT_COUNT
+    
+    if(self.bigDefensiveAuraContainer:HasAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY)) then
+        self.bigDefensiveAuraContainer:SetAuraGroupMaxFrameCount(BIG_DEFENSIVE_AURA_GROUP_KEY,maxDefensives);
+    else
+        self.bigDefensiveAuraContainer:AddAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY,BIG_DEFENSIVE_AURA_FILTER, { maxFrameCount = maxDefensives })
+    end
+    
+    
+    self.bigDefensiveAuraContainer:Show()
+end
+
+function Co_Tank_Frame_Mixin:RefreshDefensiveLayout()
+    if InCombatLockdown() then return end
+
+    if self.bigDefensiveAuraContainer then
+        self:AttachDefensives()
+
+        if self:ShowDefensives() then
+            self.bigDefensiveAuraContainer:Show()
+        else
+            self.bigDefensiveAuraContainer:Hide()
+        end
+    end
+end
+
+function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainer()
+    if InCombatLockdown() or self.privateAuraContainer then return end
+    self.privateAuraContainer = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate");
+    self.privateAuraContainer:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 0)
+    self.privateAuraContainer:SetScale(self:ScaleFactorPrivateAuras())
+    self:AttachPrivateAnchors()
+end
+
+function Co_Tank_Frame_Mixin:RefreshAuraLayout()
+    if InCombatLockdown() then return end
+
+    if self.privateAuraContainer then
+        self.privateAuraContainer:SetScale(self:ScaleFactorPrivateAuras())
+        
+        -- Rebuild slots and filters to match modified config counts
+        self:AttachPrivateAnchors()
+
+        if self:ShowPrivateAuras() then
+            self.privateAuraContainer:Show()
+        else
+            self.privateAuraContainer:Hide()
         end
     end
 end
 
 function Co_Tank_Frame_Mixin:CleanupPrivateAnchors()
-    if self.privateAnchorIDs then
-        for _, anchorID in ipairs(self.privateAnchorIDs) do
-            C_UnitAuras.RemovePrivateAuraAnchor(anchorID)
+    if self.privateAuraContainer then
+        if self.privateAuraContainer.ClearAuraGroups then
+            self.privateAuraContainer:ClearAuraGroups()
+        elseif self.privateAuraContainer.ClearAuraFilters then
+            self.privateAuraContainer:ClearAuraFilters()
         end
-        self.privateAnchorIDs = {}
     end
+end
+
+function Co_Tank_Frame_Mixin:AttachPrivateAnchors()
+    local unit = self:GetAttribute("unit")
+    self:CleanupPrivateAnchors()
+    if not unit or not self:IsVisible() or not self:ShowPrivateAuras() then
+        self.privateAuraContainer:Hide()
+        return
+    end
+
+    self.privateAuraContainer:SetUnit(unit)
+    local maxAuras = self:MaxShownPrivateAuras() or DEBUFF_MAX_COUNT   
+
+    if(self.privateAuraContainer:HasAuraGroup(DEBUFF_AURA_GROUP_KEY)) then
+        self.privateAuraContainer:SetAuraGroupMaxFrameCount(DEBUFF_AURA_GROUP_KEY,maxAuras);
+    else 
+        self.privateAuraContainer:AddAuraGroup(DEBUFF_AURA_GROUP_KEY,DEBUFF_AURA_FILTER, { maxFrameCount = maxAuras })
+    end
+
+    self.privateAuraContainer:Show()
 end
 
 -- Called when the unit attribute changes (Binding Logic)
@@ -547,12 +466,7 @@ function Co_Tank_Frame_Mixin:FitNameToWidth()
     end
 end
 
-function Co_Tank_Frame_Mixin:UpdateVisuals(event, unused_unit, info)
-    if event == "UNIT_AURA" and info then
-        if not info.isFullUpdate and not info.addedAuras and not info.updatedAuras and not info.removedAuraInstanceIDs then
-            return
-        end
-    end
+function Co_Tank_Frame_Mixin:UpdateVisuals(event, unused_unit, info)    
     if not self.isEditing then
         local now = GetTime()
         if (self.nextUpdate or 0) > now then
@@ -566,8 +480,7 @@ function Co_Tank_Frame_Mixin:UpdateVisuals(event, unused_unit, info)
 
     self:UpdateHealthBar()
     self:UpdatePower()
-    self:UpdateDebuffs()
-    self:UpdateBigDefensives()
+
 
     if self.isEditing then return end
     local name = UnitName(unit)
@@ -625,20 +538,7 @@ function Co_Tank_Frame_Mixin:EditModeStartMock()
     UnregisterUnitWatch(self)
     self:SetAttribute("unit", "player") 
     self:SetNameText(MOCK_NAMES[math.random(#MOCK_NAMES)])
-    self:ClearDebuffs()
-    --mock debuffs
-    for i = 1, math.min(#self.debuffs,#MOCK_PREVIEW_DEBUFF_ICONS) do
-        local iconFrame = self.debuffs[i]
-        local borderFrame = iconFrame.border or iconFrame
-        iconFrame.icon:SetTexture(MOCK_PREVIEW_DEBUFF_ICONS[i])
-        iconFrame.count:SetText(i == 1 and "3" or "")
-        iconFrame.cd:SetCooldown(GetTime(), math.random(10, 60))
-        iconFrame:SetAlpha(1)
-    end
-    for i=1, #self.bigDefensives do
-        local iconFrame = self.bigDefensives[i]
-        iconFrame:Hide()--hide on edit so they don't intercept mouse clicks
-    end
+    --mock auras,defensives, debuffs.
     --Private auras can't be mocked.  
     self:UpdateHealthBar()
     self:UpdatePower()
@@ -648,11 +548,8 @@ end
 function Co_Tank_Frame_Mixin:EditModeStopMock()
     -- Put back the default background color
     self:UpdateHealthBarColor()
-    self:ClearDebuffs()
-    for i=1, #self.bigDefensives do
-        local iconFrame = self.bigDefensives[i]
-        iconFrame:Show()
-    end
+    --TODO: toggle show/hide the aura containers?
+    
     RegisterUnitWatch(self)
     if not InCombatLockdown() then
         local realTank = self:FindCoTank()
@@ -855,8 +752,8 @@ local function InitializeCotankFrame()
 
     --initialize/create debuffs, defensives and private aura anchorpoints
     frame:CreateDebuffContainer()
-    frame:CreateDefensiveontainer()
-    frame:CreatePrivateAnchorContainers()
+    frame:CreateDefensiveContainer()
+    frame:CreatePrivateAnchorContainer()
     --Scripts
     frame:SetScript("OnAttributeChanged", frame.OnAttributeChanged)
     frame:SetScript("OnSizeChanged", function(s, w, h) s:OnSizeChangedHandler(w, h) end)
@@ -883,9 +780,8 @@ local function InitializeCotankFrame()
     manager:RegisterEvent("PLAYER_ENTERING_WORLD")
     manager:SetScript("OnEvent", function(self, event)
         if not InCombatLockdown() then
-            --todo maybe handle gracefully initializing if you happen to log in and are already in combat lockdown.  TBD march/april
-            if not frame.anchorFrames then
-                frame:CreatePrivateAnchorContainers()
+            if not frame.privateAuraContainer then
+                frame:CreatePrivateAnchorContainer()
             end
             local myRole = UnitGroupRolesAssigned("player")
             local currentTank = frame:FindCoTank()
@@ -959,7 +855,6 @@ SlashCmdList["COTANK"] = function(msg)
             end
             Co_Tank_Frame:UpdateVisuals()
         end
-        if Co_Tank_Frame.UpdateDebuffs then Co_Tank_Frame:UpdateDebuffs() end
     else
         print(FERROZ_COLOR:WrapTextInColorCode("CoTank Commands"))
         print("  /cotank reset - Resets frame position")
