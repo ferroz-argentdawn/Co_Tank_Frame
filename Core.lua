@@ -315,7 +315,11 @@ end
 function Co_Tank_Frame_Mixin:CreateDefensiveContainer()
     if InCombatLockdown() or self.bigDefensiveAuraContainer then return end
     self.bigDefensiveAuraContainer = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate");
-    self.bigDefensiveAuraContainer:SetPoint("RIGHT", self.health, "RIGHT", 0, 0)
+    self.bigDefensiveAuraContainer:SetFrameLevel(self.health:GetFrameLevel() + 10)
+    self.bigDefensiveAuraContainer:SetAllPoints(self.health)
+    self.bigDefensiveAuraContainer:SetFlowLayoutAnchorPoint("RIGHT")
+    self.bigDefensiveAuraContainer:SetFlowLayoutAxis(AnchorUtil.FlowLayoutAxis.Horizontal)
+    self.bigDefensiveAuraContainer:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Left, AnchorUtil.FlowDirection.Down)
     self:AttachDefensives()
 end
 function Co_Tank_Frame_Mixin:AttachDefensives()
@@ -331,19 +335,28 @@ function Co_Tank_Frame_Mixin:AttachDefensives()
     if not unit or not self:IsVisible() or not self:ShowDefensives() then
         self.bigDefensiveAuraContainer:Hide()
         return
+    else 
+        self.bigDefensiveAuraContainer:Show()
     end
 
     self.bigDefensiveAuraContainer:SetUnit(unit)
     local maxDefensives = self:MaxShownDefensives() or BIG_DEFENSIVES_DEFAULT_COUNT
-    
-    if(self.bigDefensiveAuraContainer:HasAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY)) then
-        self.bigDefensiveAuraContainer:SetAuraGroupMaxFrameCount(BIG_DEFENSIVE_AURA_GROUP_KEY,maxDefensives);
-    else
-        self.bigDefensiveAuraContainer:AddAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY,BIG_DEFENSIVE_AURA_FILTER, { maxFrameCount = maxDefensives })
+    local buttonSize = math.floor(math.min(self.health:GetHeight() * 0.75 , self.health:GetWidth() * 0.6 / maxDefensives))
+    if(not self.bigDefensiveAuraContainer:HasAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY)) then
+        self.bigDefensiveAuraContainer:AddAuraGroup(BIG_DEFENSIVE_AURA_GROUP_KEY,BIG_DEFENSIVE_AURA_FILTER, 
+        { 
+            templateName = "TargetFrameAuraTemplate",
+            initializeFrame = function(button)
+                button:SetSize(buttonSize, buttonSize)
+                button:SetPoint("CENTER", UIParent)
+        
+                local texture = button:CreateTexture()
+                texture:SetAllPoints()
+                button:SetIcon(texture)
+            end
+        })
     end
-    
-    
-    self.bigDefensiveAuraContainer:Show()
+    self.bigDefensiveAuraContainer:SetAuraGroupMaxFrameCount(BIG_DEFENSIVE_AURA_GROUP_KEY,maxDefensives);
 end
 
 function Co_Tank_Frame_Mixin:RefreshDefensiveLayout()
@@ -364,7 +377,11 @@ function Co_Tank_Frame_Mixin:CreatePrivateAnchorContainer()
     if InCombatLockdown() or self.privateAuraContainer then return end
     self.privateAuraContainer = CreateFrame("AuraContainer", nil, self, "CustomAuraContainerTemplate");
     self.privateAuraContainer:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 0)
-    self.privateAuraContainer:SetScale(self:ScaleFactorPrivateAuras())
+    self.privateAuraContainer:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 0)
+    self.privateAuraContainer:SetFlowLayoutAnchorPoint("RIGHT")
+    self.privateAuraContainer:SetFlowLayoutAxis(AnchorUtil.FlowLayoutAxis.Horizontal)
+    self.privateAuraContainer:SetFlowLayoutGrowthDirection(AnchorUtil.FlowDirection.Left, AnchorUtil.FlowDirection.Down)
+    --self.privateAuraContainer:SetScale(self:ScaleFactorPrivateAuras())
     self:AttachPrivateAnchors()
 end
 
@@ -405,12 +422,23 @@ function Co_Tank_Frame_Mixin:AttachPrivateAnchors()
 
     self.privateAuraContainer:SetUnit(unit)
     local maxAuras = self:MaxShownPrivateAuras() or DEBUFF_MAX_COUNT   
-
-    if(self.privateAuraContainer:HasAuraGroup(DEBUFF_AURA_GROUP_KEY)) then
-        self.privateAuraContainer:SetAuraGroupMaxFrameCount(DEBUFF_AURA_GROUP_KEY,maxAuras);
-    else 
-        self.privateAuraContainer:AddAuraGroup(DEBUFF_AURA_GROUP_KEY,DEBUFF_AURA_FILTER, { maxFrameCount = maxAuras })
+    local buttonSize = math.floor(math.min(self.health:GetHeight(), self.health:GetWidth() / maxAuras))
+    if(not self.privateAuraContainer:HasAuraGroup(DEBUFF_AURA_GROUP_KEY)) then 
+        self.privateAuraContainer:AddAuraGroup(DEBUFF_AURA_GROUP_KEY,DEBUFF_AURA_FILTER, 
+        { 
+            maxFrameCount = maxAuras,
+            templateName = "TargetFrameAuraTemplate",
+            initializeFrame = function(button)
+                button:SetSize(buttonSize, buttonSize)
+                button:SetPoint("CENTER", UIParent)
+        
+                local texture = button:CreateTexture()
+                texture:SetAllPoints()
+                button:SetIcon(texture)
+            end
+        })
     end
+    self.privateAuraContainer:SetAuraGroupMaxFrameCount(DEBUFF_AURA_GROUP_KEY,maxAuras);
 
     self.privateAuraContainer:Show()
 end
@@ -428,6 +456,7 @@ function Co_Tank_Frame_Mixin:OnAttributeChanged(name, value)
             self:RegisterUnitEvent("UNIT_DISPLAYPOWER", watchUnit)
             self:RegisterUnitEvent("UNIT_AURA", watchUnit)
             self:AttachPrivateAnchors()
+            self:AttachDefensives()
             self:UpdateVisuals()
         else
             if not isTestMode then
@@ -761,6 +790,7 @@ local function InitializeCotankFrame()
     frame:SetScript("OnShow", function(self)
         self:UpdateHealthBarColor()
         self:AttachPrivateAnchors()
+        self:AttachDefensives()
     end)
     frame:SetScript("OnHide", function(self)
         self:CleanupPrivateAnchors()
@@ -792,10 +822,6 @@ local function InitializeCotankFrame()
                 UnregisterUnitWatch(frame)
                 frame:Hide()
                 frame:SetAttribute("unit", nil)
-                --force always test mode
-                --frame:SetAttribute("unit", "player")
-                --frame:Show()
-                --RegisterUnitWatch(frame)
             end
             if lib then
                 lib:ApplyLayout(frame)
