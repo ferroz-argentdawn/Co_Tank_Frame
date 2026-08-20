@@ -20,13 +20,16 @@ local DEBUFF_SPACING = 4
 local DEBUFF_DEFAULT_COUNT = 5
 local DEBUFF_MIN_COUNT = 0
 local DEBUFF_MAX_COUNT = 10
-local DEBUFF_AURA_FILTER = "HARMFUL|RAID"
+local DEBUFF_AURA_FILTER = AuraUtil.AuraFilters.Harmful .. "|" .. AuraUtil.AuraFilters.IncludeNameplateOnly
 local DEBUFF_AURA_GROUP_KEY = "DEBUFFAURAS"
 --defensives
 local BIG_DEFENSIVES_DEFAULT_COUNT =1
 local BIG_DEFENSIVES_MIN_COUNT = 0
 local BIG_DEFENSIVES_MAX_COUNT = 3
-local BIG_DEFENSIVE_AURA_FILTER = "HELPFUL|BIG_DEFENSIVE"
+local BIG_DEFENSIVE_AURA_FILTER = AuraUtil.AuraFilters.Helpful .. "|" .. AuraUtil.AuraFilters.BigDefensive
+--test, force debuffs to show defensives to make sure they draw.
+--DEBUFF_AURA_FILTER = BIG_DEFENSIVE_AURA_FILTER
+
 local BIG_DEFENSIVE_AURA_GROUP_KEY = "BIGDEFENSIVEAURAS"
 
 local PRIVATE_AURAS_BACKGROUND_ALPHA = 0.5
